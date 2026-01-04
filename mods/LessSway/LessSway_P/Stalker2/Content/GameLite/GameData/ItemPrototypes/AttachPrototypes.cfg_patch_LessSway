@@ -29,7 +29,6 @@ TemplateScopeX2 : struct.begin {bpatch}
 struct.end
 
 TemplateScopeX4 : struct.begin {bpatch}
-    CanHoldBreath = true
     Scope : struct.begin {bpatch}
         AimingEffects : struct.begin {bpatch}
             PlayerOnlyEffects : struct.begin {bpatch}
@@ -42,7 +41,6 @@ TemplateScopeX4 : struct.begin {bpatch}
 struct.end
 
 TemplateScopeX8 : struct.begin {bpatch}
-    CanHoldBreath = true
     Scope : struct.begin {bpatch}
         AimingEffects : struct.begin {bpatch}
             PlayerOnlyEffects : struct.begin {bpatch}
@@ -55,7 +53,6 @@ TemplateScopeX8 : struct.begin {bpatch}
 struct.end
 
 Gauss_Scope : struct.begin {bpatch}
-    CanHoldBreath = true
     Scope : struct.begin {bpatch}
         AimingEffects : struct.begin {bpatch}
             PlayerOnlyEffects : struct.begin {bpatch}

@@ -24,7 +24,7 @@ This automated approach ensures that even if the base game updates or if you use
 
 ## Installation
 
-1.  Copy the `LessSway_P.pak` file to your `Stalker2/Content/Paks/~mods/` directory.
+1.  Copy the `LessSway_P.pak` file to your `Stalker2/GameData/GameLite/Content/Paks/~mods/` directory.
     - _Note: If `~mods` does not exist, create it._
 
 ## Development

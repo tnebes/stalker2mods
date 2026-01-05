@@ -1,0 +1,15 @@
+DefaultConfig : struct.begin {bpatch}
+   StaminaRegenStateCoefs : struct.begin {bpatch}
+		[2] : struct.begin {bpatch}
+			Value = 0.1
+		struct.end
+		[4] : struct.begin {bpatch}
+			Value = -0.50
+		struct.end
+		[5] : struct.begin {bpatch}
+			Value = -0.15
+		struct.end
+      struct.end
+   struct.end
+   MaxSubtitlesRange = 4000 // shouldnt be here but alas, it is
+struct.end

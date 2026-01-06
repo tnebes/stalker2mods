@@ -198,5 +198,111 @@ AllowedSaveTypes : struct.begin {bskipref}
 struct.end
 ```
 
+# Explanation of Keys
+
+## `PlayerWeaponSettingsPrototypes.cfg`
+
+### Identity & Durability
+- **SID**: Struct ID. The unique identifier used by the game engine to reference this specific weapon configuration (e.g., `GunPM_HG_Player` for the Makarov).
+- **DurabilityDamagePerShot**: The amount of condition/durability lost with every trigger pull.
+    - *Deduction*: Snipers like the Gauss (12.5) or SVU (11.0) degrade much faster than SMGs like the Viper (0.69).
+
+### Damage & Status Effects
+- **BaseDamage**: The raw health damage dealt per projectile.
+    - *Deduction*: Shotguns have high values (140-160) because they represent multiple pellets, while the Gauss rifle has a massive 500.0.
+- **ArmorPiercing**: A value representing how effectively the bullet ignores or bypasses armor protection.
+    - *Deduction*: Standard pistols are 1.0, while specialized armor-piercing weapons like the Vintar or PKP machine gun are 3.0+.
+- **CoverPiercing**: Works like ArmorPiercing but specifically for shooting through environmental objects like wood or thin metal.
+- **ArmorDamage**: Damage dealt specifically to the target's armor durability. Most are set to 0.0, suggesting armor damage is likely derived from BaseDamage and ArmorPiercing elsewhere.
+- **BaseBleeding**: The intensity of the bleeding effect applied to a target.
+- **ChanceBleedingPerShot**: The percentage chance (e.g., 10%) that a hit will trigger the bleeding status.
+
+### Ballistics & Range
+- **EffectiveFireDistanceMin / Max**: The range "sweet spot" where the weapon performs as intended.
+    - *Deduction*: A comment in the file suggests keeping these equal avoids buggy recoil behavior. Snipers have values up to 5000+, while pistols are around 1000.
+- **FireDistanceDropOff**: The distance (in game units) at which projectiles start losing damage.
+- **MinBulletDistanceDamageModifier**: The "floor" for damage at long range.
+    - *Deduction*: A value of 0.2 means the gun will never deal less than 20% of its BaseDamage, no matter how far the bullet travels.
+- **BulletDropLength**: The horizontal distance a bullet travels before gravity starts pulling it down aggressively.
+- **DistanceDropOffLength**: The total distance over which the damage transition from "Full" to "MinModifier" occurs.
+
+### Accuracy & AI Interaction
+- **DispersionRadius**: The functional accuracy of the weapon.
+    - *Deduction*: Lower is better. The Gauss is 83.0 (extremely precise), while the Obrez sawed-off is 758.0 (wild spread).
+- **BaseComfort**: A multiplier for how much noise the player makes while moving with this weapon.
+    - *Deduction*: Used by AI to detect you. Larger weapons like Rifles (0.55) are "less comfortable" (noisier) than Pistols (0.25).
+- **FireLoudness**: A multiplier for the sound of the gunshot for AI detection.
+    - *Deduction*: Suppressed weapons like the Vintar/Gvintar have a very low 0.1, while shotguns are 0.8.
+
+### User Interface (UI)
+These values are normalized (usually 0.0 to 1.0) and are used exclusively to draw the stat bars you see in the inventory/trade screens:
+
+- **AccuracyUI**: Fills the "Accuracy" bar.
+- **RateOfFireUI**: Fills the "Rate of Fire" bar.
+- **HandlingUI**: Fills the "Handling" (Ergonomics) bar.
+- **DamageUI**: Fills the "Damage" bar.
+- **RangeUI**: Fills the "Range" bar.
+
+## `NpcWeaponSettingsPrototypes.cfg`
+
+### Combat Balance & Difficulty
+- **BaseDamage**: Generally much lower than player values (e.g., standard Rifles deal ~9.5 instead of ~23.0). This allows the player to survive multiple hits from a group of enemies.
+- **ArmorDamage**: Usually set to 1.0 for common NPCs. It controls how quickly enemy fire degrades the player's suit.
+- **StaggerEffectPrototypeSID**: References a "flinch" or stagger effect (e.g., NPCWeaponMediumStagger). This determines the visual and mechanical "kick" the player feels when suppressed or hit by NPC fire.
+- **DurabilityDamagePerShot**: Set to 0.0 for nearly all NPCs. Enemies do not suffer from weapon degradation.
+
+### AI Accuracy & Range
+- **DispersionRadius**: Functional accuracy for NPCs. Interestingly, many are set to 100.0 or 200.0, which might seem "inaccurate" compared to the player's base values, but it is modified by curves.
+- **DispersionRadiusZombieAddend**: A penalty to accuracy (usually +30.0) applied if the NPC is a Zombie. This simulates their uncoordinated, "shuffling" shooting style.
+- **DispersionRadiusMultiplierByDistanceCurve**: References an external data curve (e.g., PistolDispersionDefault). This scales the NPC's inaccuracy based on distance—NPCs are typically more "clumsy" at extreme ranges and more precise medium-close.
+- **BulletDropHeight**: Usually 0.0 for NPCs to simplify AI calculations, ensuring their shots fly flatter toward the player.
+
+### AI Tactics & Behavior
+- **CombatSynchronizationScore**: This is a behavioral weight system.
+    - *Deduction*: It tells the AI whether a weapon is suitable for certain actions. For example, a -1.0 on SuppressiveFire for a specialized rifle means the AI will not try to suppression-fire with it, while a 1.0 on ThrowGrenade encourages them to use explosives during that weapon's combat state.
+
+### Special Archetypes
+- **GuardGun... (SIDs like GuardGunAK74_ST_NPC)**:
+    - **BaseDamage**: 500.0
+    - **DispersionRadius**: 1.0 to 10.0 (Perfect accuracy)
+    - *Deduction*: These are "Executioner" weapons for scripted or boundary guards (like the "Border Guards"). They are designed to kill the player instantly with 100% accuracy if they enter a forbidden zone.
+- **Scar_GunGauss_SP_NPC**: This Gauss variant has unique behavioral scores (like 0.8 for Advance.Action), suggesting it’s tuned for a specific boss or elite NPC (like Scar) to be highly aggressive.
+
+## `GeneralNPCObjPrototypes.cfg`
+
+Unlike the previous weapon files, this file dictates how NPCs move, react to the player, and utilize specialized combat tactics.
+
+### Core Identity & Stats
+- **SID**: The Unique Identifier for the NPC archetype (e.g., GeneralNPC_Duty_Stormtrooper).
+- **Faction**: Determines the NPC's social group (Duty, Freedom, Monolith, etc.), affecting who they fight or assist.
+- **Mass**: The physical weight of the NPC (usually 50.0), used for physics calculations like pushback or falling.
+- **OfflineCombatWeight**: A value used for simulating combat between AI squads when the player is not nearby.
+- *Deduction*: Guards (25) are much stronger "simulated" fighters than standard NPCs (10).
+- **VitalParams**: Defines health (MaxHP), stamina (MaxSP), and degradation rates for bleeding, radiation, and hunger.
+- **Damage & Vulnerabilities**: 
+    - **BoneDamageCoefficients**: Multipliers for damage based on where the NPC is hit.
+    - *Deduction*: Headshots deal 6.0x damage, while limb shots deal only 0.7x, making accuracy critical for the player.
+    - **ArmorDifferenceCoef...**: Multipliers that determine how much protection armor provides against projectiles (2.0) vs. melee (1.0).
+    - **Protection**: Elemental and anomalous resistances (Burn, Shock, PSY, Radiation, etc.). The GuardBase has a massive 90.0 in all categories, making them nearly immune to the environment.
+- **AI Combat Tactics**: 
+    - **Abilities**: Lists specific actions the AI can perform, such as Human_PhantomAttack, Human_MeleeAttack, or Human_ThrowGrenade.
+    - **FlankParameters**: Controls how enemies try to get around the player.
+    - *Deduction*: They won't start a flank until they've detected the player for 15s (ActivationDelaySeconds) or have taken enough damage (MaxAccumulatedDamage = 30).
+    - **EvadeParameters**: Controls "dodging" behaviors (Side-stepping or backing away).
+    - **SuppressiveFireParameters**: How the AI "pins" the player down, aiming at a specific bone (jnt_spine_03) to keep you in cover.
+    - **CamperFeatureData**: A system to punish "camping" NPCs, forcing them to move if they stay in a 500.f radius for more than 10s.
+- **Movement & Locomotion**: 
+    - **MovementParams**: Defines the raw speeds for various states:
+    - **WalkSpeed**: 115
+    - **RunSpeed**: 300
+    - **SprintSpeed**: 300
+    - **ClimbSpeedCoef / LimpSpeedCoef**: Multipliers that slow the NPC down when climbing or when injured (Limping is 50% speed).
+    - **DoorTransitionSettings**: Determines which animation an NPC uses to open doors.
+    - *Deduction*: If they are in combat with a weapon, they use a "Kick" animation (MG_tp_ar_combat_melee_kick) instead of a normal open.
+- **NPC Roles (NPCType)**
+    - **ItemGeneratorPrototypeSID**: Points to a loot table. A Sniper archetype will have a different generator than a CloseCombat archetype.
+    - **TradePrototypeSID / NPCType**: Defines if the NPC is a merchant, technician, or guide, granting them specific interaction menus.
+    - **MeshGenerator...**: Controls the visual appearance and randomized clothing/equipment for that specific faction and role.
+
 # Additional Notes
 Modding is a community effort. Feel free to contribute to the modding community by sharing your knowledge and experiences to this guide. You can do so by opening an issue or a pull request this repository.

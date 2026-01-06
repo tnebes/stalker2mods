@@ -2,13 +2,11 @@ import os
 import sys
 
 # Add the current directory to sys.path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 import patching_script_general as psg
 
 # replace with your own paths
-BASE_FILE = r'C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData\WeaponData\WeaponGeneralSetupPrototypes.cfg'
-PATCH_FILE = r'C:\dev\stalker2\mods\mods\LessSway\LessSway_P\Stalker2\Content\GameLite\GameData\WeaponData\WeaponGeneralSetupPrototypes\WeaponGeneralSetupPrototypes_patch_LessSway.cfg'
+BASE_FILE = r'C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData\WeaponGeneralSetupPrototypes.cfg'
+PATCH_FILE = r'C:\dev\stalker2\mods\mods\LessSway\LessSway_P\Stalker2\Content\GameLite\GameData\WeaponGeneralSetupPrototypes\WeaponGeneralSetupPrototypes_patch_LessSway.cfg'
 EFFECTS = ["LessSwayX", "LessSwayY", "LessSwayTime"]
 NESTED_PATH = ["AimingEffects", "PlayerOnlyEffects"]
 

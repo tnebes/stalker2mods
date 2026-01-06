@@ -1,3 +1,7 @@
 .agent
 resources
 *.pak
+*.7z
+*.zip
+
+__pycache__

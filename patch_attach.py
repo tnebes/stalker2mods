@@ -3,8 +3,6 @@ import sys
 import re
 
 # Add the current directory to sys.path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 import patching_script_general as psg
 
 # replace with your own paths

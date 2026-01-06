@@ -7,7 +7,7 @@ def get_inheritance_tree(file_path):
     Handles {refkey=...} as parent within the same file.
     """
     tree = {}
-    pattern = re.compile(r'^(\w+)\s*:\s*struct\.begin(?:\s*\{refkey=(\w+)\})?', re.MULTILINE | re.IGNORECASE)
+    pattern = re.compile(r'^(\w+)\s*:\s*struct\.begin(?:\s*\{.*refkey=(\w+)\})?', re.MULTILINE | re.IGNORECASE)
     
     with open(file_path, 'r', encoding='utf-8-sig') as f:
         content = f.read()

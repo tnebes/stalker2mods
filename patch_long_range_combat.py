@@ -27,12 +27,12 @@ FILES = [
 
 VISION_DISTANCE_MULT = 0.9  
 VISION_CHECK_TIME_MULT = 1.5 
-VISION_LOSE_TIME_MULT = 0.75 
+VISION_LOSE_TIME_MULT = 2 # actually increased to 2 as we want them to react slower. additionally, for 10s the enemy will suppress player's last location. doesn't make sense for them to search if they are suppressing. 
 PLAYER_STEALTH_COMFORT_MULT = 0.8
 PLAYER_STEALTH_LOUDNESS_MULT = 0.8
 
 # Weapon Accuracy & Range
-NPC_WEAPON_DISPERSION_MULT = 0.5 
+NPC_WEAPON_DISPERSION_MULT = 0.1 
 NPC_RANGE_MULT = 1.5             
 
 DEBUG_GUARANTEED_HITS = False # DEBUG: Every shot hits
@@ -42,6 +42,7 @@ def get_npc_base_defaults(patcher):
     filename = "GeneralNPCObjPrototypes.cfg"
     content = patcher.file_contents.get(filename)
     if not content:
+        print(f"Error: {filename} not found. Returning default values.")
         return {
             "EnemyCouldBeVisibleMaxDistance": 5600.0,
             "LoseEnemyVisibilityTime": 4.0,
@@ -151,10 +152,20 @@ def patch_weapons(patcher):
     npc_weapon_file = "NPCWeaponSettingsPrototypes.cfg"
     npc_content = patcher.file_contents.get(npc_weapon_file)
     if npc_content:
+        # Trace inheritance back to TemplateShotgun to identify shotguns
+        shotgun_settings_sids = patcher.get_all_inheritors("TemplateShotgun")
+        print(f"DEBUG: Found {len(shotgun_settings_sids)} shotgun settings SIDs (including templates)")
+        
         structs = re.findall(r'^(\w+)\s*:\s*struct\.begin', npc_content, re.MULTILINE)
         count = 0
         for s in structs:
             if psg.is_special_npc(s): continue
+            
+            # Skip if it's a shotgun
+            if s in shotgun_settings_sids:
+                print(f"DEBUG: Skipping dispersion patch for shotgun {s}")
+                continue
+                
             data = psg.get_struct_content(npc_content, s)
             props = {}
             for key in ["DispersionRadius", "DispersionRadiusZombieAddend"]:
@@ -199,32 +210,42 @@ def patch_npc_attributes(patcher):
     structs = re.findall(r'^(\w+)\s*:\s*struct\.begin', content, re.MULTILINE)
     count = 0
     
-    # Fine-tuning rules
+    # Fine-tuning rules (Generated via generate_rank_curves.py & Manual Tuning)
     rank_configs = {
         "Newbie": {
-            "range_mult": 0.8, 
-            "ignore_disp_min": {"Short": 0, "Medium": 0, "Long": 0},
-            "ignore_disp_max": {"Short": 1, "Medium": 0, "Long": 0}
+            "range_mult": 0.8,
+            "ignore_disp_min": {'Short': 0, 'Medium': 0, 'Long': 0},
+            "ignore_disp_max": {'Short': 1, 'Medium': 1, 'Long': 0},
+            "ignore_disp_chance_min": {'Short': 0, 'Medium': 0, 'Long': 0},
+            "ignore_disp_chance_max": {'Short': 0.0482, 'Medium': 0, 'Long': 0}
         },
         "Experienced": {
-            "range_mult": 1.5, 
-            "ignore_disp_min": {"Short": 1, "Medium": 0, "Long": 0},
-            "ignore_disp_max": {"Short": 1, "Medium": 0, "Long": 0}
+            "range_mult": 1.5,
+            "ignore_disp_min": {'Short': 1, 'Medium': 0, 'Long': 0},
+            "ignore_disp_max": {'Short': 1, 'Medium': 1, 'Long': 0},
+            "ignore_disp_chance_min": {'Short': 0.0649, 'Medium': 0, 'Long': 0},
+            "ignore_disp_chance_max": {'Short': 0.3404, 'Medium': 0.0482, 'Long': 0}
         },
         "Veteran": {
-            "range_mult": 1.5, 
-            "ignore_disp_min": {"Short": 1, "Medium": 0, "Long": 0},
-            "ignore_disp_max": {"Short": 1, "Medium": 1, "Long": 0}
+            "range_mult": 1.5,
+            "ignore_disp_min": {'Short': 1, 'Medium': 0, 'Long': 0},
+            "ignore_disp_max": {'Short': 1, 'Medium': 1, 'Long': 0},
+            "ignore_disp_chance_min": {'Short': 0.3034, 'Medium': 0.0649, 'Long': 0},
+            "ignore_disp_chance_max": {'Short': 0.718, 'Medium': 0.3404, 'Long': 0.0207}
         },
         "Master": {
-            "range_mult": 1.1, 
-            "ignore_disp_min": {"Short": 1, "Medium": 1, "Long": 0},
-            "ignore_disp_max": {"Short": 1, "Medium": 1, "Long": 1}
+            "range_mult": 1.1,
+            "ignore_disp_min": {'Short': 1, 'Medium': 1, 'Long': 0},
+            "ignore_disp_max": {'Short': 1, 'Medium': 1, 'Long': 1},
+            "ignore_disp_chance_min": {'Short': 0.488, 'Medium': 0.3034, 'Long': 0.0351},
+            "ignore_disp_chance_max": {'Short': 0.8642, 'Medium': 0.718, 'Long': 0.261}
         },
         "Zombie": {
-            "range_mult": 1.0, 
-            "ignore_disp_min": {"Short": 0, "Medium": 0, "Long": 0},
-            "ignore_disp_max": {"Short": 1, "Medium": 0, "Long": 0}
+            "range_mult": 1.0,
+            "ignore_disp_min": {'Short': 0, 'Medium': 0, 'Long': 0},
+            "ignore_disp_max": {'Short': 1, 'Medium': 0, 'Long': 0},
+            "ignore_disp_chance_min": {'Short': 0, 'Medium': 0, 'Long': 0},
+            "ignore_disp_chance_max": {'Short': 0, 'Medium': 0, 'Long': 0}
         }
     }
 
@@ -265,7 +286,7 @@ def patch_npc_attributes(patcher):
 
         for t in types:
             t_data = psg.get_struct_content(behavior_types_full, t)
-            config = rank_configs.get(t, {"range_mult": 1.5, "ignore_disp": {}})
+            config = rank_configs.get(t, {"range_mult": 1.5})
             
             rank_lines = [f"         {t} : struct.begin {{bpatch}}"]
             has_any_rank_change = False
@@ -280,31 +301,45 @@ def patch_npc_attributes(patcher):
             for bracket in ["Short", "Medium", "Long"]:
                 b_data = psg.get_struct_content(t_data, bracket)
                 if b_data:
-                    # Use new separate min/max configs
-                    ignore_min = config.get("ignore_disp_min", {}).get(bracket, 0)
-                    ignore_max = config.get("ignore_disp_max", {}).get(bracket, 0)
+                    # Configuration floors (hardcoded rules)
+                    floor_min = config.get("ignore_disp_min", {}).get(bracket, 0)
+                    floor_max = config.get("ignore_disp_max", {}).get(bracket, 0)
                     
-                    # Rule for low-shot weapons (Snipers/Bolt-actions)
+                    # Sigmoid curve multipliers
+                    chance_min = config.get("ignore_disp_chance_min", {}).get(bracket, 0)
+                    chance_max = config.get("ignore_disp_chance_max", {}).get(bracket, 0)
+                    
                     min_shots = psg.get_value(b_data, "MinShots")
                     max_shots = psg.get_value(b_data, "MaxShots")
-                    if min_shots is not None and max_shots is not None and min_shots <= 2 and max_shots <= 2:
-                        # Sniper refinement: Most ranks get 0 guaranteed hits
-                        ignore_min = 0
-                        ignore_max = 0
-                        # Master rank at Short/Medium gets 50/50 chance (0 to 1)
-                        if t == "Master" and bracket in ["Short", "Medium"]:
+
+                    if min_shots is not None and max_shots is not None:
+                        # Calculated values based on burst size
+                        calc_min = int(min_shots * chance_min)
+                        calc_max = int(min_shots * chance_max) # Using min_shots as base for max too? Or max_shots?
+                        # User says: "multiplier * MinShots"
+                        
+                        ignore_min = max(floor_min, calc_min)
+                        ignore_max = max(floor_max, calc_max)
+                        
+                        # Specialized override for low-shot weapons (Snipers/Bolt-actions)
+                        if min_shots <= 2 and max_shots <= 2:
+                            # Sniper refinement: Most ranks get 0 guaranteed hits
                             ignore_min = 0
-                            ignore_max = 1
+                            ignore_max = 0
+                            # Master rank at Short/Medium gets 50/50 chance (0 to 1)
+                            if t == "Master" and bracket in ["Short", "Medium"]:
+                                ignore_min = 0
+                                ignore_max = 1
 
-                    if DEBUG_GUARANTEED_HITS:
-                        ignore_min = 100
-                        ignore_max = 100
+                        if DEBUG_GUARANTEED_HITS:
+                            ignore_min = 100
+                            ignore_max = 100
 
-                    rank_lines.append(f"            {bracket} : struct.begin {{bpatch}}")
-                    rank_lines.append(f"               IgnoreDispersionMinShots = {ignore_min}")
-                    rank_lines.append(f"               IgnoreDispersionMaxShots = {ignore_max}")
-                    rank_lines.append(f"            struct.end")
-                    has_any_rank_change = True
+                        rank_lines.append(f"            {bracket} : struct.begin {{bpatch}}")
+                        rank_lines.append(f"               IgnoreDispersionMinShots = {ignore_min}")
+                        rank_lines.append(f"               IgnoreDispersionMaxShots = {ignore_max}")
+                        rank_lines.append(f"            struct.end")
+                        has_any_rank_change = True
             
             if has_any_rank_change:
                 rank_lines.append("         struct.end")

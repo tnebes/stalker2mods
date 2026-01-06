@@ -9,9 +9,9 @@ BASE_DIR = r'C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData\O
 PATCH_ROOT = r'C:\dev\stalker2\mods\mods\RewardingHeadshots\RewardingHeadshots_P\Stalker2\Content\GameLite\GameData\ObjPrototypes'
 
 # Target Values v1 (Default inheritors)
-V1_HEAD = 50.0 # 8.0
-V1_BODY = 50.0 # 2.0
-V1_LIMBS = 50.0 # 1.0
+V1_HEAD = 8.0
+V1_BODY = 2.0
+V1_LIMBS = 1.0
 
 def round_up_05(val):
     """Rounds up to the nearest 0.5."""

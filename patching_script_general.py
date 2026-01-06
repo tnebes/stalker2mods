@@ -1,13 +1,45 @@
 import os
 import re
+import math
+
+def round_to_nearest(val, nearest=0.5):
+    """Rounds a value to the nearest increment (default 0.5)."""
+    return round(val / nearest) * nearest
+
+def is_special_npc(name):
+    """Checks if an NPC/SID should be excluded based on common special names."""
+    exclusions = ['Guard', 'Korshunov', 'Strelok', 'Scar', 'Duga']
+    for exc in exclusions:
+        if exc.lower() in name.lower():
+            return True
+    return False
+
+def get_value(content, key):
+    """Extracts a numerical or string value from a config block."""
+    match = re.search(rf'{key}\s*=\s*([\d\.\w\-%\'\/]+)', content, re.IGNORECASE)
+    if not match:
+        return None
+    val_str = match.group(1).lower().replace('f', '')
+    
+    # Handle percentages
+    if '%' in val_str:
+        try:
+            return float(val_str.replace('%', '')) / 100.0
+        except ValueError:
+            return val_str
+            
+    # Handle floats/ints
+    try:
+        if '.' in val_str:
+            return float(val_str)
+        return int(val_str)
+    except ValueError:
+        return val_str
 
 def get_inheritance_tree(file_path):
-    """
-    Builds a child -> parent mapping from a .cfg file.
-    Handles {refkey=...} as parent within the same file.
-    """
+    """Builds a child -> parent mapping from a .cfg file."""
     tree = {}
-    pattern = re.compile(r'^(\w+)\s*:\s*struct\.begin(?:\s*\{.*refkey=(\w+)\})?', re.MULTILINE | re.IGNORECASE)
+    pattern = re.compile(r'^\s*(\w+)\s*:\s*struct\.begin(?:\s*\{.*refkey=(\w+)\})?', re.MULTILINE | re.IGNORECASE)
     
     with open(file_path, 'r', encoding='utf-8-sig') as f:
         content = f.read()
@@ -18,9 +50,7 @@ def get_inheritance_tree(file_path):
     return tree
 
 def find_all_inheritors(tree, base_struct):
-    """
-    Recursively finds all structs that inherit from base_struct.
-    """
+    """Recursively finds all structs that inherit from base_struct."""
     inheritors = set()
     memo = {}
 
@@ -42,10 +72,8 @@ def find_all_inheritors(tree, base_struct):
     return inheritors
 
 def get_struct_content(file_content, struct_name):
-    """
-    Returns the full string content of a struct definition from SID start to struct.end.
-    """
-    pattern = re.compile(rf'^{struct_name}\s*:\s*struct\.begin', re.MULTILINE | re.IGNORECASE)
+    """Returns the full string content of a struct definition, handling indentation."""
+    pattern = re.compile(rf'^\s*{struct_name}\s*:\s*struct\.begin', re.MULTILINE | re.IGNORECASE)
     match = pattern.search(file_content)
     if not match:
         return None
@@ -67,9 +95,7 @@ def get_struct_content(file_content, struct_name):
     return None
 
 def has_nested_node(file_content, struct_name, node_path):
-    """
-    Checks if a struct contains a nested node path.
-    """
+    """Checks if a struct contains a nested node path."""
     current_content = get_struct_content(file_content, struct_name)
     if not current_content:
         return False
@@ -96,92 +122,110 @@ def has_nested_node(file_content, struct_name, node_path):
         
     return True
 
-def has_property(file_content, struct_name, property_name):
-    """
-    Checks if a struct contains a specific property (key = value).
-    """
-    current_content = get_struct_content(file_content, struct_name)
-    if not current_content:
-        return False
-    
-    pattern = re.compile(rf'^\s*{property_name}\s*=', re.MULTILINE | re.IGNORECASE)
-    return pattern.search(current_content) is not None
-
-def check_node_in_chain(tree, file_content, struct_name, node_path):
-    """
-    Checks if a nested node path exists in the struct or any of its parents.
-    """
-    current = struct_name
-    visited = set()
-    while current and current not in visited:
-        visited.add(current)
-        if has_nested_node(file_content, current, node_path):
-            return True
-        current = tree.get(current)
-    return False
-
-def check_property_in_chain(tree, file_content, struct_name, property_name):
-    """
-    Checks if a property exists in the struct or any of its parents.
-    """
-    current = struct_name
-    visited = set()
-    while current and current not in visited:
-        visited.add(current)
-        if has_property(file_content, current, property_name):
-            return True
-        current = tree.get(current)
-    return False
-
-def generate_bpatch(struct_name, nested_path=None, values=None, direct_properties=None):
+def generate_bpatch(struct_name, nested_path=None, values=None, direct_properties=None, root_properties=None):
     """
     Generates a {bpatch} block.
+    If nested_path is provided, direct_properties and values apply at the end of that path.
+    root_properties always apply at the first level of the struct.
     """
     lines = [f"{struct_name} : struct.begin {{bpatch}}"]
     
-    if direct_properties:
-        for k, v in direct_properties.items():
+    # Add root properties first
+    if root_properties:
+        for k, v in root_properties.items():
             lines.append(f"   {k} = {v}")
 
-    if nested_path and values:
-        indent = "   "
+    indent = "   "
+    
+    # Traverse nested path
+    if nested_path:
         for node in nested_path:
-            lines.append(f"{indent}{node} : struct.begin {{bpatch}}")
+            # Check if node already has {bpatch} or struct.begin in it, otherwise add it
+            if "struct.begin" not in node:
+                lines.append(f"{indent}{node} : struct.begin {{bpatch}}")
+            else:
+                lines.append(f"{indent}{node}")
             indent += "   "
-        
+
+    # Add properties at current (possibly nested) indentation
+    if direct_properties:
+        for k, v in direct_properties.items():
+            lines.append(f"{indent}{k} = {v}")
+
+    # Add array elements at current indentation
+    if values:
         for val in values:
-            lines.append(f"{indent}[*] = {val}")
-        
-        for i in range(len(nested_path)):
-            close_indent = "   " * (len(nested_path) - i)
+            if val.strip().startswith("[*]"):
+                lines.append(f"{indent}{val.strip()}")
+            else:
+                lines.append(f"{indent}[*] = {val}")
+    
+    # Close nested blocks
+    if nested_path:
+        for i in range(len(nested_path), 0, -1):
+            close_indent = "   " * i
             lines.append(f"{close_indent}struct.end")
         
     lines.append("struct.end")
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines)
 
-def already_patched(patch_file_path, struct_name, values=None, properties=None):
-    """
-    Checks if a struct is already patched with values or properties.
-    """
-    if not os.path.exists(patch_file_path):
-        return False
-    
-    with open(patch_file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    struct_content = get_struct_content(content, struct_name)
-    if not struct_content:
-        return False
-    
-    if values:
-        for val in values:
-            if val not in struct_content:
-                return False
-    
-    if properties:
-        for k, v in properties.items():
-            prop_pattern = re.compile(rf'^\s*{k}\s*=\s*{v}', re.MULTILINE | re.IGNORECASE)
-            if not prop_pattern.search(struct_content):
-                return False
-                
-    return True
+class ModPatcher:
+    def __init__(self, source_dump_dir, mod_output_dir):
+        self.source_dump = source_dump_dir
+        self.mod_root = mod_output_dir
+        self.global_tree = {}
+        self.file_contents = {}
+        self.struct_to_file = {}
+        self.patches = {} # filename -> list of patch strings
+
+    def load_files(self, relative_paths):
+        """Loads files, builds inheritance tree, and maps structs."""
+        for rel_path in relative_paths:
+            abs_path = os.path.join(self.source_dump, rel_path)
+            if not os.path.exists(abs_path):
+                print(f"Warning: {abs_path} not found.")
+                continue
+            
+            filename = os.path.basename(rel_path)
+            tree = get_inheritance_tree(abs_path)
+            self.global_tree.update(tree)
+            
+            with open(abs_path, 'r', encoding='utf-8-sig') as f:
+                content = f.read()
+                self.file_contents[filename] = content
+                for struct_name in tree.keys():
+                    self.struct_to_file[struct_name] = (filename, rel_path)
+
+    def get_all_inheritors(self, base_struct):
+        inheritors = find_all_inheritors(self.global_tree, base_struct)
+        inheritors.add(base_struct)
+        return sorted(list(inheritors))
+
+    def add_patch(self, filename, patch_text):
+        if filename not in self.patches:
+            self.patches[filename] = []
+        self.patches[filename].append(patch_text)
+
+    def save_all(self, mod_name_suffix):
+        if not self.patches:
+            print("No patches generated.")
+            return
+
+        for filename, patches in self.patches.items():
+            base_name = os.path.splitext(filename)[0]
+            
+            # Find the relative path from struct_to_file mapping or use first match
+            rel_dir = ""
+            for s, (fname, fpath) in self.struct_to_file.items():
+                if fname == filename:
+                    rel_dir = os.path.dirname(fpath)
+                    break
+            
+            target_dir = os.path.join(self.mod_root, rel_dir, base_name)
+            os.makedirs(target_dir, exist_ok=True)
+            
+            target_file = os.path.join(target_dir, f"{base_name}_patch_{mod_name_suffix}.cfg")
+            print(f"Writing {len(patches)} patches to {target_file}...")
+            with open(target_file, 'w', encoding='utf-8') as f:
+                f.write("\n\n".join(patches))
+        print("Success.")

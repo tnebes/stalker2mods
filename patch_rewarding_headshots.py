@@ -1,227 +1,111 @@
 import os
 import re
-import math
 import patching_script_general as psg
 
 # Constants
-# Base paths
-BASE_DIR = r'C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData\ObjPrototypes'
-PATCH_ROOT = r'C:\dev\stalker2\mods\mods\RewardingHeadshots\RewardingHeadshots_P\Stalker2\Content\GameLite\GameData\ObjPrototypes'
+BASE_DIR = r'C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData'
+MOD_ROOT = r'C:\dev\stalker2\mods\mods\RewardingHeadshots\RewardingHeadshots_P\Stalker2\Content\GameLite\GameData'
 
-# Target Values v1 (Default inheritors)
 V1_HEAD = 8.0
 V1_BODY = 2.0
 V1_LIMBS = 1.0
 
-def round_up_05(val):
-    """Rounds up to the nearest 0.5."""
-    return math.ceil(val * 2) / 2.0
-
 def get_original_coefs(struct_data):
-    """Extracts Head, Body, Limbs coefficients from a struct's content."""
-    # Find the BoneDamageCoefficients block start to limit range if possible, 
-    # but for NPCs these values usually only appear in that block anyway.
-    
-    # Helper to find coef for a bone
     def find_coef(bone_name):
-        # Match pattern within BoneDamageCoefficients context
         pattern = rf'DamageBone\s*=\s*EDamageBone::{bone_name}\s+DamageCoef\s*=\s*([\d\.]+)'
         match = re.search(pattern, struct_data, re.IGNORECASE)
         return float(match.group(1)) if match else 1.0
+    return {'Head': find_coef('Head'), 'Body': find_coef('Body'), 'Limbs': find_coef('Limbs')}
 
-    return {
-        'Head': find_coef('Head'),
-        'Body': find_coef('Body'),
-        'Limbs': find_coef('Limbs')
-    }
+def calculate_coefs(original, is_zombie=False, is_special=False):
+    if is_zombie:
+        # Head: 30%, Body: 30%, Limbs: 25%
+        return {
+            'Head': psg.round_to_nearest(original['Head'] * 1.3, 0.5),
+            'Body': psg.round_to_nearest(original['Body'] * 1.3, 0.5),
+            'Limbs': psg.round_to_nearest(original['Limbs'] * 1.25, 0.5)
+        }
+    elif is_special:
+        rules = {'Head': (4.0, 3.0), 'Body': (2.0, 2.0), 'Limbs': (0.5, 1.2)}
+        res = {}
+        for bone, (inc, mul) in rules.items():
+            orig = original[bone]
+            val = orig + inc if orig <= 1.0 else orig * mul
+            res[bone] = psg.round_to_nearest(val, 0.5)
+        return res
+    else:
+        # Head: 50%, Body: 30%, Limbs: 20%
+        return {
+            'Head': psg.round_to_nearest(original['Head'] * 1.5, 0.5),
+            'Body': psg.round_to_nearest(original['Body'] * 1.3, 0.5),
+            'Limbs': psg.round_to_nearest(original['Limbs'] * 1.2, 0.5)
+        }
 
-def calculate_special_coefs(original_coefs):
-    """Applies dynamic calculation for special NPCs."""
-    results = {}
-    
-    rules = {
-        'Head': {'inc': 4.0, 'mul': 3.0},
-        'Body': {'inc': 2.0, 'mul': 2.0},
-        'Limbs': {'inc': 0.5, 'mul': 1.2}
-    }
-    
-    for bone, rule in rules.items():
-        orig = original_coefs[bone]
-        if orig <= 1.0:
-            val = orig + rule['inc']
-        else:
-            val = orig * rule['mul']
-        results[bone] = round_up_05(val)
-        
-    return results
-
-def generate_bone_damage_coefficients(head, body, limbs):
-    return (
-        "   BoneDamageCoefficients : struct.begin\n"
-        "      [*] : struct.begin\n"
-        f"         DamageBone = EDamageBone::Head\n"
-        f"         DamageCoef = {head}\n"
-        "      struct.end\n"
-        "      [*] : struct.begin\n"
-        f"         DamageBone = EDamageBone::Body\n"
-        f"         DamageCoef = {body}\n"
-        "      struct.end\n"
-        "      [*] : struct.begin\n"
-        f"         DamageBone = EDamageBone::Limbs\n"
-        f"         DamageCoef = {limbs}\n"
-        "      struct.end\n"
-        "   struct.end"
-    )
-
-def is_zombie(struct_name, global_tree, file_contents, struct_to_file):
-    """Recursively checks if a struct or any of its parents is a zombie via flag or name."""
+def is_zombie_check(struct_name, patcher):
     current = struct_name
     visited = set()
     while current and current not in visited:
-        # Check name/SID for "Zombie"
-        if "zombie" in current.lower():
-            return True
-            
+        if "zombie" in current.lower(): return True
         visited.add(current)
-        filename = struct_to_file.get(current)
-        if filename:
-            content = file_contents[filename]
-            struct_data = psg.get_struct_content(content, current)
-            if struct_data and re.search(r'^\s*IsZombie\s*=\s*true', struct_data, re.MULTILINE | re.IGNORECASE):
+        mapping = patcher.struct_to_file.get(current)
+        if mapping:
+            data = psg.get_struct_content(patcher.file_contents[mapping[0]], current)
+            if data and re.search(r'^\s*IsZombie\s*=\s*true', data, re.MULTILINE | re.IGNORECASE):
                 return True
-        current = global_tree.get(current)
+        current = patcher.global_tree.get(current)
     return False
 
-def find_defining_parent(struct_name, global_tree, file_contents, struct_to_file):
-    """Finds the first struct name in the inheritance chain that defines BoneDamageCoefficients."""
+def find_defining_parent(struct_name, patcher):
     current = struct_name
     visited = set()
     while current and current not in visited:
         visited.add(current)
-        filename = struct_to_file.get(current)
-        if filename:
-            content = file_contents[filename]
-            struct_data = psg.get_struct_content(content, current)
-            if struct_data and re.search(r'^\s*BoneDamageCoefficients\s*:\s*struct\.begin', struct_data, re.MULTILINE | re.IGNORECASE):
-                return current, struct_data
-        current = global_tree.get(current)
-    return None, None
-
-def calculate_base_coefs(original_coefs):
-    """Applies percentage increases for the base case (non-special)."""
-    # Head: 50% increase (x1.5), Body: 30% increase (x1.3), Limbs: 20% increase (x1.2)
-    results = {}
-    results['Head'] = round_up_05(original_coefs['Head'] * 1.5)
-    results['Body'] = round_up_05(original_coefs['Body'] * 1.3)
-    results['Limbs'] = round_up_05(original_coefs['Limbs'] * 1.2)
-    return results
-
-def calculate_zombie_coefs(original_coefs):
-    """Applies percentage increases for zombies."""
-    # Head: 30% increase (x1.3), Body: 30% increase (x1.3), Limbs: 25% increase (x1.25)
-    results = {}
-    results['Head'] = round_up_05(original_coefs['Head'] * 1.3)
-    results['Body'] = round_up_05(original_coefs['Body'] * 1.3)
-    results['Limbs'] = round_up_05(original_coefs['Limbs'] * 1.25)
-    return results
+        mapping = patcher.struct_to_file.get(current)
+        if mapping:
+            data = psg.get_struct_content(patcher.file_contents[mapping[0]], current)
+            if data and "BoneDamageCoefficients" in data:
+                return data
+        current = patcher.global_tree.get(current)
+    return None
 
 def main():
-    if not os.path.exists(BASE_DIR):
-        print(f"Base directory not found: {BASE_DIR}")
-        return
-
-    print(f"Analyzing directory {BASE_DIR}...")
+    patcher = psg.ModPatcher(BASE_DIR, MOD_ROOT)
     
-    # We need to build a global inheritance tree first by reading all files
-    global_tree = {}
-    file_contents = {}
-    struct_to_file = {}
+    # We need all ObjPrototypes for inheritance
+    obj_proto_dir = os.path.join(BASE_DIR, 'ObjPrototypes')
+    files = [os.path.join('ObjPrototypes', f) for f in os.listdir(obj_proto_dir) if f.endswith('.cfg')]
+    patcher.load_files(files)
     
-    cfg_files = [f for f in os.listdir(BASE_DIR) if f.endswith(".cfg")]
-    for filename in cfg_files:
-        file_path = os.path.join(BASE_DIR, filename)
-        tree = psg.get_inheritance_tree(file_path)
-        global_tree.update(tree)
+    target_structs = patcher.get_all_inheritors("NPCBase")
+    
+    for s in target_structs:
+        filename_info = patcher.struct_to_file.get(s)
+        if not filename_info: continue
+        filename, _ = filename_info
         
-        with open(file_path, 'r', encoding='utf-8-sig') as f:
-            content = f.read()
-            file_contents[filename] = content
-            
-            # Record which file each struct belongs to
-            for struct_name in tree.keys():
-                struct_to_file[struct_name] = filename
-
-    # Find all inheritors of NPCBase
-    target_structs = psg.find_all_inheritors(global_tree, "NPCBase")
-    target_structs.add("NPCBase")
-
-    print(f"Found {len(target_structs)} structs inheriting from NPCBase.")
-
-    # Group patches by file
-    patches_by_file = {}
-
-    for struct_name in sorted(target_structs):
-        filename = struct_to_file.get(struct_name)
-        if not filename:
-            continue
-
-        content = file_contents[filename]
-        struct_data = psg.get_struct_content(content, struct_name)
-        if not struct_data:
-            continue
-            
-        # Check if this specific struct has its own BoneDamageCoefficients
-        has_local_oob = re.search(r'^\s*BoneDamageCoefficients\s*:\s*struct\.begin', struct_data, re.MULTILINE | re.IGNORECASE)
-        is_z = is_zombie(struct_name, global_tree, file_contents, struct_to_file)
-
-        if has_local_oob:
-            # Special NPC Logic (if defined locally, usually special or explicitly overridden)
-            # However, if it's a zombie with local override, we might still prefer zombie rules? 
-            # Looking at previous user input, "non-zombie non-special" implies zombies are a separate tier.
-            # Usually special characters aren't zombies. Let's prioritize Zombie rules if it's a zombie.
-            orig_coefs = get_original_coefs(struct_data)
-            if orig_coefs:
-                if is_z:
-                    final_coefs = calculate_zombie_coefs(orig_coefs)
-                else:
-                    final_coefs = calculate_special_coefs(orig_coefs)
-                h, b, l = final_coefs['Head'], final_coefs['Body'], final_coefs['Limbs']
-            else:
-                # Fallback
-                h, b, l = 12.0, 3.0, 1.5
-        else:
-            # Finding first defining parent for coefficients
-            defining_parent, parent_data = find_defining_parent(struct_name, global_tree, file_contents, struct_to_file)
-            if parent_data:
-                orig_coefs = get_original_coefs(parent_data)
-                if is_z:
-                    final_coefs = calculate_zombie_coefs(orig_coefs)
-                else:
-                    final_coefs = calculate_base_coefs(orig_coefs)
-                h, b, l = final_coefs['Head'], final_coefs['Body'], final_coefs['Limbs']
-            else:
-                # Absolute fallback
-                h, b, l = V1_HEAD, V1_BODY, V1_LIMBS
-
-        patch = f"{struct_name} : struct.begin {{bpatch}}\n{generate_bone_damage_coefficients(h, b, l)}\nstruct.end"
+        content = patcher.file_contents[filename]
+        data = psg.get_struct_content(content, s)
         
-        if filename not in patches_by_file:
-            patches_by_file[filename] = []
-        patches_by_file[filename].append(patch)
-
-    # Write patches using the Folder Technique
-    for filename, patches in patches_by_file.items():
-        base_name = os.path.splitext(filename)[0]
-        # Folder Technique: ObjPrototypes/FileName/FileName_patch_ModName.cfg
-        patch_dir = os.path.join(PATCH_ROOT, base_name)
-        patch_file = os.path.join(patch_dir, f"{base_name}_patch_RewardingHeadshots.cfg")
+        is_z = is_zombie_check(s, patcher)
+        has_local = data and "BoneDamageCoefficients" in data
         
-        os.makedirs(patch_dir, exist_ok=True)
-        print(f"Writing {len(patches)} patches to {patch_file}...")
-        with open(patch_file, 'w', encoding='utf-8') as f:
-            f.write("\n\n".join(patches))
-
-    print("Done.")
+        defining_data = data if has_local else find_defining_parent(s, patcher)
+        orig_coefs = get_original_coefs(defining_data) if defining_data else {'Head': V1_HEAD, 'Body': V1_BODY, 'Limbs': V1_LIMBS}
+        
+        final = calculate_coefs(orig_coefs, is_zombie=is_z, is_special=has_local and not is_z)
+        
+        # Format BoneDamageCoefficients
+        bdc = [
+            f"[*] : struct.begin\n         DamageBone = EDamageBone::Head\n         DamageCoef = {final['Head']:.1f}\n      struct.end",
+            f"[*] : struct.begin\n         DamageBone = EDamageBone::Body\n         DamageCoef = {final['Body']:.1f}\n      struct.end",
+            f"[*] : struct.begin\n         DamageBone = EDamageBone::Limbs\n         DamageCoef = {final['Limbs']:.1f}\n      struct.end"
+        ]
+        
+        # Use full struct.begin to avoid auto-adding {bpatch} to BoneDamageCoefficients
+        patch_text = psg.generate_bpatch(s, ["BoneDamageCoefficients : struct.begin"], bdc)
+        patcher.add_patch(filename, patch_text)
+        
+    patcher.save_all("RewardingHeadshots")
 
 if __name__ == "__main__":
     main()

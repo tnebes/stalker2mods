@@ -1,50 +1,45 @@
 import os
-import sys
-
-# Add the current directory to sys.path
 import patching_script_general as psg
 
-# replace with your own paths
-BASE_FILE = r'C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData\WeaponGeneralSetupPrototypes.cfg'
-PATCH_FILE = r'C:\dev\stalker2\mods\mods\LessSway\LessSway_P\Stalker2\Content\GameLite\GameData\WeaponGeneralSetupPrototypes\WeaponGeneralSetupPrototypes_patch_LessSway.cfg'
-EFFECTS = ["LessSwayX", "LessSwayY", "LessSwayTime"]
+# Constants
+BASE_DIR = r'C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData'
+MOD_ROOT = r'C:\dev\stalker2\mods\mods\LessSway\LessSway_P\Stalker2\Content\GameLite\GameData'
+
 NESTED_PATH = ["AimingEffects", "PlayerOnlyEffects"]
+EFFECTS = ["LessSwayX", "LessSwayY", "LessSwayTime"]
 
 def main():
-    if not os.path.exists(BASE_FILE):
-        print(f"Base file not found: {BASE_FILE}")
-        return
+    patcher = psg.ModPatcher(BASE_DIR, MOD_ROOT)
+    # Weapons file
+    weapon_rel_path = 'WeaponData/WeaponGeneralSetupPrototypes.cfg'
+    patcher.load_files([weapon_rel_path])
+    
+    weapon_file = os.path.basename(weapon_rel_path)
+    inheritors = patcher.get_all_inheritors('TemplateWeapon')
+    
+    for s in inheritors:
+        # Check if node exists in chain
+        if psg.has_nested_node(patcher.file_contents[weapon_file], s, NESTED_PATH):
+            patch = psg.generate_bpatch(s, NESTED_PATH, EFFECTS)
+            patcher.add_patch(weapon_file, patch)
+        else:
+            # Check parent content for nested node recursively
+            current = s
+            found = False
+            visited = set()
+            while current and current not in visited:
+                visited.add(current)
+                data = psg.get_struct_content(patcher.file_contents[weapon_file], current)
+                if data and psg.has_nested_node(data, current, NESTED_PATH):
+                    found = True
+                    break
+                current = patcher.global_tree.get(current)
+            
+            if found:
+                patch = psg.generate_bpatch(s, NESTED_PATH, EFFECTS)
+                patcher.add_patch(weapon_file, patch)
 
-    print(f"Analyzing {os.path.basename(BASE_FILE)}...")
-    with open(BASE_FILE, 'r', encoding='utf-8-sig') as f:
-        base_content = f.read()
-        
-    tree = psg.get_inheritance_tree(BASE_FILE)
-    
-    print("Finding inheritors of TemplateWeapon...")
-    inheritors = psg.find_all_inheritors(tree, 'TemplateWeapon')
-    
-    target_structs = list(inheritors)
-    if 'TemplateWeapon' not in target_structs:
-        target_structs.append('TemplateWeapon')
-    
-    print(f"Applying filters to {len(target_structs)} structs...")
-    
-    all_final_patches = []
-    for struct in target_structs:
-        # User requirement: append IF AND ONLY IF node present in chain
-        if psg.check_node_in_chain(tree, base_content, struct, NESTED_PATH):
-            all_final_patches.append(psg.generate_bpatch(struct, NESTED_PATH, EFFECTS))
-    
-    if all_final_patches:
-        print(f"Writing {len(all_final_patches)} patches to {PATCH_FILE}...")
-        os.makedirs(os.path.dirname(PATCH_FILE), exist_ok=True)
-        # Overwrite file to ensure a clean state
-        with open(PATCH_FILE, 'w', encoding='utf-8') as f:
-            f.write("\n".join(all_final_patches))
-        print("Done.")
-    else:
-        print("No patches needed.")
+    patcher.save_all("LessSway")
 
 if __name__ == "__main__":
     main()

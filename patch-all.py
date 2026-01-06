@@ -13,11 +13,15 @@ def run_script(script_name):
 def main():
     print("Starting all patching tasks...")
     
-    # 1. Patch Weapons (Inheritance based)
+    # 1. LessSway (Inheritance based)
     run_script("patch_weapons.py")
-    
-    # 2. Patch Attachments (CanHoldBreath based)
     run_script("patch_attach.py")
+    
+    # 2. RewardingHeadshots
+    run_script("patch_rewarding_headshots.py")
+    
+    # 3. LongRangeCombat
+    run_script("patch_long_range_combat.py")
     
     print("All patching tasks completed.")
 

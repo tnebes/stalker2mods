@@ -10,6 +10,7 @@ FILES = [
     'ObjPrototypes/GeneralNPCObjPrototypes.cfg',
     'WeaponData/CharacterWeaponSettingsPrototypes/NPCWeaponSettingsPrototypes.cfg',
     'WeaponData/CharacterWeaponSettingsPrototypes/PlayerWeaponSettingsPrototypes.cfg',
+    'WeaponData/CharacterWeaponSettingsPrototypes.cfg',
     'AIPrototypes/VisionScannerPrototypes.cfg',
     'WeaponData/WeaponAttributesPrototypes/NPCWeaponAttributesPrototypes.cfg'
 ]
@@ -18,20 +19,20 @@ FILES = [
 # Restore detection but slow down reaction and tracking
 
 # --- DEBUG VISION & SPOTTING (COMMENTED OUT) ---
-VISION_DISTANCE_MULT = 0.01
-VISION_CHECK_TIME_MULT = 10.0
-VISION_LOSE_TIME_MULT = 0.01
-PLAYER_STEALTH_COMFORT_MULT = 0.1
-PLAYER_STEALTH_LOUDNESS_MULT = 0.1
+# VISION_DISTANCE_MULT = 0.01
+# VISION_CHECK_TIME_MULT = 10.0
+# VISION_LOSE_TIME_MULT = 0.01
+# PLAYER_STEALTH_COMFORT_MULT = 0.1
+# PLAYER_STEALTH_LOUDNESS_MULT = 0.1
 
-# VISION_DISTANCE_MULT = 1.0  
-# VISION_CHECK_TIME_MULT = 1.5 
-# VISION_LOSE_TIME_MULT = 0.75 
-# PLAYER_STEALTH_COMFORT_MULT = 1.0
-# PLAYER_STEALTH_LOUDNESS_MULT = 1.0
+VISION_DISTANCE_MULT = 0.9  
+VISION_CHECK_TIME_MULT = 1.5 
+VISION_LOSE_TIME_MULT = 0.75 
+PLAYER_STEALTH_COMFORT_MULT = 0.8
+PLAYER_STEALTH_LOUDNESS_MULT = 0.8
 
 # Weapon Accuracy & Range
-NPC_WEAPON_DISPERSION_MULT = 2.0 
+NPC_WEAPON_DISPERSION_MULT = 0.5 
 NPC_RANGE_MULT = 1.5             
 
 DEBUG_GUARANTEED_HITS = False # DEBUG: Every shot hits
@@ -191,30 +192,39 @@ def patch_npc_attributes(patcher):
     content = patcher.file_contents.get(filename)
     if not content: return
     
+    # Identify shotguns by tracing settings inheritance back to TemplateShotgun
+    shotgun_settings_sids = patcher.get_all_inheritors("TemplateShotgun")
+    print(f"DEBUG: Found {len(shotgun_settings_sids)} shotgun settings SIDs: {shotgun_settings_sids}")
+    
     structs = re.findall(r'^(\w+)\s*:\s*struct\.begin', content, re.MULTILINE)
     count = 0
     
     # Fine-tuning rules
     rank_configs = {
         "Newbie": {
-            "range_mult": 0.75, 
-            "ignore_disp": {"Short": 0, "Medium": 0, "Long": 0}
+            "range_mult": 0.8, 
+            "ignore_disp_min": {"Short": 0, "Medium": 0, "Long": 0},
+            "ignore_disp_max": {"Short": 1, "Medium": 0, "Long": 0}
         },
         "Experienced": {
             "range_mult": 1.5, 
-            "ignore_disp": {"Short": 1, "Medium": 0, "Long": 0}
+            "ignore_disp_min": {"Short": 1, "Medium": 0, "Long": 0},
+            "ignore_disp_max": {"Short": 1, "Medium": 0, "Long": 0}
         },
         "Veteran": {
             "range_mult": 1.5, 
-            "ignore_disp": {"Short": 1, "Medium": 1, "Long": 0}
+            "ignore_disp_min": {"Short": 1, "Medium": 0, "Long": 0},
+            "ignore_disp_max": {"Short": 1, "Medium": 1, "Long": 0}
         },
         "Master": {
             "range_mult": 1.1, 
-            "ignore_disp": {"Short": 1, "Medium": 1, "Long": 1}
+            "ignore_disp_min": {"Short": 1, "Medium": 1, "Long": 0},
+            "ignore_disp_max": {"Short": 1, "Medium": 1, "Long": 1}
         },
         "Zombie": {
             "range_mult": 1.0, 
-            "ignore_disp": {"Short": 0, "Medium": 0, "Long": 0}
+            "ignore_disp_min": {"Short": 0, "Medium": 0, "Long": 0},
+            "ignore_disp_max": {"Short": 1, "Medium": 0, "Long": 0}
         }
     }
 
@@ -225,6 +235,15 @@ def patch_npc_attributes(patcher):
         ai_params = psg.get_struct_content(data, "AIParameters")
         if not ai_params: continue
         
+        # Check if it's a shotgun via its CharacterWeaponSettingsSID
+        # We search the whole struct content for CharacterWeaponSettingsSID to be sure
+        settings_sid_match = re.search(r'CharacterWeaponSettingsSID\s*=\s*(\w+)', data, re.IGNORECASE)
+        if settings_sid_match:
+            settings_sid = settings_sid_match.group(1)
+            if settings_sid in shotgun_settings_sids:
+                print(f"DEBUG: Skipping shotgun {s} (SettingsSID: {settings_sid})")
+                continue
+
         behavior_types_full = psg.get_struct_content(ai_params, "BehaviorTypes")
         if not behavior_types_full: continue
         
@@ -261,13 +280,29 @@ def patch_npc_attributes(patcher):
             for bracket in ["Short", "Medium", "Long"]:
                 b_data = psg.get_struct_content(t_data, bracket)
                 if b_data:
-                    # Default to 0 unless specified in config
-                    ignore_val = config["ignore_disp"].get(bracket, 0)
+                    # Use new separate min/max configs
+                    ignore_min = config.get("ignore_disp_min", {}).get(bracket, 0)
+                    ignore_max = config.get("ignore_disp_max", {}).get(bracket, 0)
+                    
+                    # Rule for low-shot weapons (Snipers/Bolt-actions)
+                    min_shots = psg.get_value(b_data, "MinShots")
+                    max_shots = psg.get_value(b_data, "MaxShots")
+                    if min_shots is not None and max_shots is not None and min_shots <= 2 and max_shots <= 2:
+                        # Sniper refinement: Most ranks get 0 guaranteed hits
+                        ignore_min = 0
+                        ignore_max = 0
+                        # Master rank at Short/Medium gets 50/50 chance (0 to 1)
+                        if t == "Master" and bracket in ["Short", "Medium"]:
+                            ignore_min = 0
+                            ignore_max = 1
+
                     if DEBUG_GUARANTEED_HITS:
-                        ignore_val = 100
+                        ignore_min = 100
+                        ignore_max = 100
+
                     rank_lines.append(f"            {bracket} : struct.begin {{bpatch}}")
-                    rank_lines.append(f"               IgnoreDispersionMinShots = {ignore_val}")
-                    rank_lines.append(f"               IgnoreDispersionMaxShots = {ignore_val}")
+                    rank_lines.append(f"               IgnoreDispersionMinShots = {ignore_min}")
+                    rank_lines.append(f"               IgnoreDispersionMaxShots = {ignore_max}")
                     rank_lines.append(f"            struct.end")
                     has_any_rank_change = True
             

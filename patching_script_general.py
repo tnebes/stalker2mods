@@ -39,7 +39,8 @@ def get_value(content, key):
 def get_inheritance_tree(file_path):
     """Builds a child -> parent mapping from a .cfg file."""
     tree = {}
-    pattern = re.compile(r'^\s*(\w+)\s*:\s*struct\.begin(?:\s*\{.*refkey=(\w+)\})?', re.MULTILINE | re.IGNORECASE)
+    # Matches struct name and captures the refkey value if present within braces
+    pattern = re.compile(r'^\s*(\w+)\s*:\s*struct\.begin(?:\s*\{.*refkey\s*=\s*(\w+).*\})?', re.MULTILINE | re.IGNORECASE)
     
     with open(file_path, 'r', encoding='utf-8-sig') as f:
         content = f.read()

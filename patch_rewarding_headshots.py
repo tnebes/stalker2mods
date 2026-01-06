@@ -73,6 +73,58 @@ def generate_bone_damage_coefficients(head, body, limbs):
         "   struct.end"
     )
 
+def is_zombie(struct_name, global_tree, file_contents, struct_to_file):
+    """Recursively checks if a struct or any of its parents is a zombie via flag or name."""
+    current = struct_name
+    visited = set()
+    while current and current not in visited:
+        # Check name/SID for "Zombie"
+        if "zombie" in current.lower():
+            return True
+            
+        visited.add(current)
+        filename = struct_to_file.get(current)
+        if filename:
+            content = file_contents[filename]
+            struct_data = psg.get_struct_content(content, current)
+            if struct_data and re.search(r'^\s*IsZombie\s*=\s*true', struct_data, re.MULTILINE | re.IGNORECASE):
+                return True
+        current = global_tree.get(current)
+    return False
+
+def find_defining_parent(struct_name, global_tree, file_contents, struct_to_file):
+    """Finds the first struct name in the inheritance chain that defines BoneDamageCoefficients."""
+    current = struct_name
+    visited = set()
+    while current and current not in visited:
+        visited.add(current)
+        filename = struct_to_file.get(current)
+        if filename:
+            content = file_contents[filename]
+            struct_data = psg.get_struct_content(content, current)
+            if struct_data and re.search(r'^\s*BoneDamageCoefficients\s*:\s*struct\.begin', struct_data, re.MULTILINE | re.IGNORECASE):
+                return current, struct_data
+        current = global_tree.get(current)
+    return None, None
+
+def calculate_base_coefs(original_coefs):
+    """Applies percentage increases for the base case (non-special)."""
+    # Head: 50% increase (x1.5), Body: 30% increase (x1.3), Limbs: 20% increase (x1.2)
+    results = {}
+    results['Head'] = round_up_05(original_coefs['Head'] * 1.5)
+    results['Body'] = round_up_05(original_coefs['Body'] * 1.3)
+    results['Limbs'] = round_up_05(original_coefs['Limbs'] * 1.2)
+    return results
+
+def calculate_zombie_coefs(original_coefs):
+    """Applies percentage increases for zombies."""
+    # Head: 30% increase (x1.3), Body: 30% increase (x1.3), Limbs: 25% increase (x1.25)
+    results = {}
+    results['Head'] = round_up_05(original_coefs['Head'] * 1.3)
+    results['Body'] = round_up_05(original_coefs['Body'] * 1.3)
+    results['Limbs'] = round_up_05(original_coefs['Limbs'] * 1.25)
+    return results
+
 def main():
     if not os.path.exists(BASE_DIR):
         print(f"Base directory not found: {BASE_DIR}")
@@ -111,8 +163,6 @@ def main():
     for struct_name in sorted(target_structs):
         filename = struct_to_file.get(struct_name)
         if not filename:
-            # Struct might be defined in the global tree but not found in the files we just read
-            # This can happen if it's in a file we skipped or a base file
             continue
 
         content = file_contents[filename]
@@ -122,20 +172,38 @@ def main():
             
         # Check if this specific struct has its own BoneDamageCoefficients
         has_local_oob = re.search(r'^\s*BoneDamageCoefficients\s*:\s*struct\.begin', struct_data, re.MULTILINE | re.IGNORECASE)
-        
+        is_z = is_zombie(struct_name, global_tree, file_contents, struct_to_file)
+
         if has_local_oob:
+            # Special NPC Logic (if defined locally, usually special or explicitly overridden)
+            # However, if it's a zombie with local override, we might still prefer zombie rules? 
+            # Looking at previous user input, "non-zombie non-special" implies zombies are a separate tier.
+            # Usually special characters aren't zombies. Let's prioritize Zombie rules if it's a zombie.
             orig_coefs = get_original_coefs(struct_data)
             if orig_coefs:
-                special_coefs = calculate_special_coefs(orig_coefs)
-                h, b, l = special_coefs['Head'], special_coefs['Body'], special_coefs['Limbs']
+                if is_z:
+                    final_coefs = calculate_zombie_coefs(orig_coefs)
+                else:
+                    final_coefs = calculate_special_coefs(orig_coefs)
+                h, b, l = final_coefs['Head'], final_coefs['Body'], final_coefs['Limbs']
             else:
-                # Fallback if parsing fails
+                # Fallback
                 h, b, l = 12.0, 3.0, 1.5
-            coefs = generate_bone_damage_coefficients(h, b, l)
         else:
-            coefs = generate_bone_damage_coefficients(V1_HEAD, V1_BODY, V1_LIMBS)
+            # Finding first defining parent for coefficients
+            defining_parent, parent_data = find_defining_parent(struct_name, global_tree, file_contents, struct_to_file)
+            if parent_data:
+                orig_coefs = get_original_coefs(parent_data)
+                if is_z:
+                    final_coefs = calculate_zombie_coefs(orig_coefs)
+                else:
+                    final_coefs = calculate_base_coefs(orig_coefs)
+                h, b, l = final_coefs['Head'], final_coefs['Body'], final_coefs['Limbs']
+            else:
+                # Absolute fallback
+                h, b, l = V1_HEAD, V1_BODY, V1_LIMBS
 
-        patch = f"{struct_name} : struct.begin {{bpatch}}\n{coefs}\nstruct.end"
+        patch = f"{struct_name} : struct.begin {{bpatch}}\n{generate_bone_damage_coefficients(h, b, l)}\nstruct.end"
         
         if filename not in patches_by_file:
             patches_by_file[filename] = []

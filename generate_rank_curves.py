@@ -11,23 +11,23 @@ def get_config_data():
     brackets = ["Short", "Medium", "Long"]
     
     # Sigmoid parameters for Max Curve
-    L_max = 0.95   # Max multiplier plateau (95% of burst)
-    k_max = 1.8    # Sharp rise
-    x0_max = 1.2   # Shift left for earlier effectiveness
-    C_max = 0.05   # Small baseline shift
+    L_max = 0.7   # Max multiplier plateau
+    k_max = 2.5    # Sharp rise
+    x0_max = 1.4   # Shift left for earlier effectiveness
+    C_max = 0.01   # Small baseline shift
     
     # Sigmoid parameters for Min Curve
-    L_min = 0.6    # Min multiplier plateau
+    L_min = 0.5    # Min multiplier plateau
     k_min = 1.8    
     x0_min = 1.8   
     C_min = 0.05   
     
     rank_map = {
-        "Newbie": 0,
-        "Experienced": 1,
-        "Veteran": 2,
-        "Master": 3,
-        "Zombie": -0.5
+        "Newbie": 0.5,
+        "Experienced": 2,
+        "Veteran": 3,
+        "Master": 4,
+        "Zombie": 1
     }
     
     # Distance penalties

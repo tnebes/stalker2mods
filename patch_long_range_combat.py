@@ -32,7 +32,7 @@ PLAYER_STEALTH_COMFORT_MULT = 0.8
 PLAYER_STEALTH_LOUDNESS_MULT = 0.8
 
 # Weapon Accuracy & Range
-NPC_WEAPON_DISPERSION_MULT = 0.1 
+NPC_WEAPON_DISPERSION_MULT = 0.05
 NPC_RANGE_MULT = 1.5             
 
 DEBUG_GUARANTEED_HITS = False # DEBUG: Every shot hits
@@ -151,32 +151,52 @@ def patch_weapons(patcher):
     # NPC Weapons
     npc_weapon_file = "NPCWeaponSettingsPrototypes.cfg"
     npc_content = patcher.file_contents.get(npc_weapon_file)
+
     if npc_content:
         # Trace inheritance back to TemplateShotgun to identify shotguns
         shotgun_settings_sids = patcher.get_all_inheritors("TemplateShotgun")
         print(f"DEBUG: Found {len(shotgun_settings_sids)} shotgun settings SIDs (including templates)")
         
+        # Matches top level structs
         structs = re.findall(r'^(\w+)\s*:\s*struct\.begin', npc_content, re.MULTILINE)
         count = 0
         for s in structs:
             if psg.is_special_npc(s): continue
             
-            # Skip if it's a shotgun
-            if s in shotgun_settings_sids:
-                print(f"DEBUG: Skipping dispersion patch for shotgun {s}")
-                continue
-                
             data = psg.get_struct_content(npc_content, s)
+            if not data: continue
+
             props = {}
-            for key in ["DispersionRadius", "DispersionRadiusZombieAddend"]:
-                val = psg.get_value(data, key)
-                if val is not None and isinstance(val, (int, float)):
-                    new_val = val * NPC_WEAPON_DISPERSION_MULT
-                    props[key] = f"{new_val:.2f}"
+            
+            # 1. Dispersion Logic (Skip if it's a shotgun)
+            if s not in shotgun_settings_sids:
+                for key in ["DispersionRadius", "DispersionRadiusZombieAddend"]:
+                    val = psg.get_value(data, key)
+                    if val is not None and isinstance(val, (int, float)):
+                        new_val = val * NPC_WE_DISPERSION_MULT if 'NPC_WE_DISPERSION_MULT' in locals() else val * NPC_WEAPON_DISPERSION_MULT
+                        props[key] = f"{new_val:.2f}"
+            
+            # 2. Bleeding Logic (Use NPC original as base)
+            # Formula: new = 0.646 * old + 1.54
+            orig_bleed = psg.get_value(data, "BaseBleeding")
+            if orig_bleed is not None and isinstance(orig_bleed, (int, float)):
+                n_bleed = 0.646 * orig_bleed + 1.54
+                props["BaseBleeding"] = f"{n_bleed:.1f}"
+            
+            # 3. Chance Logic (reduce it by 25% or to 1% whichever is higher reduction)
+            # This logic maps 2% to 1% (greater of 0.5% reduction or 1% reduction)
+            orig_chance = psg.get_value(data, "ChanceBleedingPerShot")
+            if orig_chance is not None and isinstance(orig_chance, (int, float)):
+                # We want the GREATER reduction: max(Value * 0.25, 0.01)
+                # So the new value is min(Value * 0.75, Value - 0.01)
+                n_chance = min(orig_chance * 0.75, orig_chance - 0.01)
+                n_chance = max(0.01, n_chance) # Never below 1%
+                props["ChanceBleedingPerShot"] = f"{round(n_chance * 100)}%"
+
             if props:
                 patcher.add_patch(npc_weapon_file, psg.generate_bpatch(s, direct_properties=props))
                 count += 1
-        print(f"DEBUG: Applied weapon dispersion patches to {count} structs in NPCWeaponSettingsPrototypes.cfg")
+        print(f"DEBUG: Applied weapon bleeding/dispersion bpatches to {count} structs in NPCWeaponSettingsPrototypes.cfg")
 
     # Player Weapons (Stealth components)
     player_weapon_file = "PlayerWeaponSettingsPrototypes.cfg"
@@ -217,35 +237,35 @@ def patch_npc_attributes(patcher):
             "ignore_disp_min": {'Short': 0, 'Medium': 0, 'Long': 0},
             "ignore_disp_max": {'Short': 1, 'Medium': 1, 'Long': 0},
             "ignore_disp_chance_min": {'Short': 0, 'Medium': 0, 'Long': 0},
-            "ignore_disp_chance_max": {'Short': 0.0482, 'Medium': 0, 'Long': 0}
+            "ignore_disp_chance_max": {'Short': 0.0567, 'Medium': 0, 'Long': 0}
         },
         "Experienced": {
             "range_mult": 1.5,
             "ignore_disp_min": {'Short': 1, 'Medium': 0, 'Long': 0},
             "ignore_disp_max": {'Short': 1, 'Medium': 1, 'Long': 0},
-            "ignore_disp_chance_min": {'Short': 0.0649, 'Medium': 0, 'Long': 0},
-            "ignore_disp_chance_max": {'Short': 0.3404, 'Medium': 0.0482, 'Long': 0}
+            "ignore_disp_chance_min": {'Short': 0.2445, 'Medium': 0.0458, 'Long': 0},
+            "ignore_disp_chance_max": {'Short': 0.5623, 'Medium': 0.1783, 'Long': 0.0026}
         },
         "Veteran": {
             "range_mult": 1.5,
             "ignore_disp_min": {'Short': 1, 'Medium': 0, 'Long': 0},
             "ignore_disp_max": {'Short': 1, 'Medium': 1, 'Long': 0},
-            "ignore_disp_chance_min": {'Short': 0.3034, 'Medium': 0.0649, 'Long': 0},
-            "ignore_disp_chance_max": {'Short': 0.718, 'Medium': 0.3404, 'Long': 0.0207}
+            "ignore_disp_chance_min": {'Short': 0.3983, 'Medium': 0.2445, 'Long': 0.0209},
+            "ignore_disp_chance_max": {'Short': 0.6774, 'Medium': 0.5623, 'Long': 0.1177}
         },
         "Master": {
             "range_mult": 1.1,
             "ignore_disp_min": {'Short': 1, 'Medium': 1, 'Long': 0},
             "ignore_disp_max": {'Short': 1, 'Medium': 1, 'Long': 1},
-            "ignore_disp_chance_min": {'Short': 0.488, 'Medium': 0.3034, 'Long': 0.0351},
-            "ignore_disp_chance_max": {'Short': 0.8642, 'Medium': 0.718, 'Long': 0.261}
+            "ignore_disp_chance_min": {'Short': 0.4406, 'Medium': 0.3983, 'Long': 0.2},
+            "ignore_disp_chance_max": {'Short': 0.6889, 'Medium': 0.6774, 'Long': 0.5017}
         },
         "Zombie": {
             "range_mult": 1.0,
             "ignore_disp_min": {'Short': 0, 'Medium': 0, 'Long': 0},
             "ignore_disp_max": {'Short': 1, 'Medium': 0, 'Long': 0},
-            "ignore_disp_chance_min": {'Short': 0, 'Medium': 0, 'Long': 0},
-            "ignore_disp_chance_max": {'Short': 0, 'Medium': 0, 'Long': 0}
+            "ignore_disp_chance_min": {'Short': 0.0458, 'Medium': 0, 'Long': 0},
+            "ignore_disp_chance_max": {'Short': 0.1783, 'Medium': 0.0105, 'Long': 0}
         }
     }
 

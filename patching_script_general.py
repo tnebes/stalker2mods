@@ -14,27 +14,28 @@ def is_special_npc(name):
             return True
     return False
 
-def get_value(content, key):
+def get_value(content, key, preserve_case=True):
     """Extracts a numerical or string value from a config block."""
     match = re.search(rf'{key}\s*=\s*([\d\.\w\-%\'\/]+)', content, re.IGNORECASE)
     if not match:
         return None
-    val_str = match.group(1).lower().replace('f', '')
+    val_str = match.group(1)
     
     # Handle percentages
     if '%' in val_str:
         try:
-            return float(val_str.replace('%', '')) / 100.0
+            return float(val_str.lower().replace('%', '').replace('f', '')) / 100.0
         except ValueError:
             return val_str
             
     # Handle floats/ints
     try:
-        if '.' in val_str:
-            return float(val_str)
-        return int(val_str)
+        clean_val = val_str.lower().replace('f', '')
+        if '.' in clean_val:
+            return float(clean_val)
+        return int(clean_val)
     except ValueError:
-        return val_str
+        return val_str if preserve_case else val_str.lower()
 
 def get_inheritance_tree(file_path):
     """Builds a child -> parent mapping from a .cfg file."""

@@ -11,5 +11,4 @@ DefaultConfig : struct.begin {bpatch}
 		struct.end
       struct.end
    struct.end
-   MaxSubtitlesRange = 4000 // shouldnt be here but alas, it is
 struct.end

@@ -1,23 +1,20 @@
 import math
-import argparse
-import os
-import re
 
 def sigmoid(x, L, k, x0):
     return L / (1 + math.exp(-k * (x - x0)))
 
-def get_config_data():
+def get_rank_configs():
     ranks = ["Newbie", "Experienced", "Veteran", "Master", "Zombie"]
     brackets = ["Short", "Medium", "Long"]
     
     # Sigmoid parameters for Max Curve
-    L_max = 0.7   # Max multiplier plateau
-    k_max = 2.5    # Sharp rise
-    x0_max = 1.4   # Shift left for earlier effectiveness
-    C_max = 0.01   # Small baseline shift
+    L_max = 0.7     # Max multiplier plateau
+    k_max = 2.5     # Sharp rise
+    x0_max = 1.4    # Shift left for earlier effectiveness
+    C_max = 0.01    # Small baseline shift
     
     # Sigmoid parameters for Min Curve
-    L_min = 0.5    # Min multiplier plateau
+    L_min = 0.5     # Min multiplier plateau
     k_min = 1.8    
     x0_min = 1.8   
     C_min = 0.05   
@@ -36,17 +33,17 @@ def get_config_data():
         "Medium": 1.0,
         "Long": 2.2
     }
-
+ 
     # Range multipliers
     range_mults = {
         "Newbie": 0.8,
         "Experienced": 1.5,
         "Veteran": 1.5,
-        "Master": 1.1,
+        "Master": 1.5,
         "Zombie": 1.0
     }
-
-    # Hardcoded floors (Updated with manual tuning from main file)
+ 
+    # Hardcoded floors
     floors_min = {
         "Newbie": {"Short": 0, "Medium": 0, "Long": 0},
         "Experienced": {"Short": 1, "Medium": 0, "Long": 0},
@@ -61,11 +58,11 @@ def get_config_data():
         "Master": {"Short": 1, "Medium": 1, "Long": 1},
         "Zombie": {"Short": 1, "Medium": 0, "Long": 0}
     }
-
+ 
     # Burst size and Guaranteed hit parameters
     burst_logic = {
         "Newbie": {
-            "burst_mult": 1.25,  # 25% more ammo
+            "burst_mult": 1.25,
             "min_add": 0,
             "max_add": 0,
             "guaranteed_add_long": 0,
@@ -74,45 +71,42 @@ def get_config_data():
         },
         "Experienced": {
             "burst_mult": 1.0, 
-            "long_burst_mult": 0.9, # 10% fewer at long
+            "long_burst_mult": 0.9,
             "min_add": 0,
             "max_add": 0,
             "guaranteed_add_long": 0,
             "guaranteed_add_medium": 0,
             "guaranteed_add_short": 0,
-            "ignore_disp_max_inc_if_small": 1 # Configurable: increase by 1 if shots < 4
+            "ignore_disp_max_inc_if_small": 1
         },
         "Veteran": {
             "burst_mult": 1.0,
-            "long_burst_mult": 0.75, # 25% fewer at long
-            "medium_burst_mult": 0.9, # 10% fewer at medium
+            "long_burst_mult": 0.75,
+            "medium_burst_mult": 0.85,
+            "short_burst_mult": 1.1,
             "min_add": 0,
-            "max_add": 0,
-            "guaranteed_add_long": 1, # +1 max shot long
-            "guaranteed_add_medium_min": 1, # +1 min shot medium
-            "guaranteed_add_medium_max": 0,
-            "guaranteed_add_short": 0
+            "max_add": 1
         },
         "Master": {
             "burst_mult": 1.0,
-            "long_burst_mult": 0.5, # -50% long
-            "medium_burst_mult": 0.75, # -25% medium
-            "short_burst_mult": 1.25, # +25% short
+            "long_burst_mult": 0.4,
+            "medium_burst_mult": 0.75,
+            "short_burst_mult": 1.25,
             "min_add": 0,
             "max_add": 0,
-            "guaranteed_add_long_min": 0, # USER: "has no guaranteed dispersion min shot" at long
-            "guaranteed_add_long_max": -1, # USER: "loses 1 guaranteed dispersion max"
+            "guaranteed_add_long_min": 0,
+            "guaranteed_add_long_max": -1,
             "guaranteed_add_medium_min": 0,
             "guaranteed_add_medium_max": 1,
-            "guaranteed_add_short_mag_pct": 0.04 # USER: "nerf master at short range slightly" (was 0.05)
+            "guaranteed_add_short_mag_pct": 0.04
         },
         "Zombie": {
-            "burst_mult": 1.5, # USER: "expend 50% more ammo"
+            "burst_mult": 1.5,
             "min_add": 0,
             "max_add": 0
         }
     }
-
+ 
     results = {}
     for r_name in ranks:
         r_val = rank_map[r_name]
@@ -124,7 +118,7 @@ def get_config_data():
             val_min = sigmoid(x, L_min, k_min, x0_min) - C_min
             chance_max[b] = round(max(0, val_max), 4)
             chance_min[b] = round(max(0, val_min), 4)
-
+ 
         results[r_name] = {
             "range_mult": range_mults[r_name],
             "ignore_disp_min": floors_min[r_name],
@@ -135,50 +129,8 @@ def get_config_data():
         }
     return results
 
-def generate_configs(update_file=False):
-    data = get_config_data()
-    
-    config_str = "    # Fine-tuning rules (Generated via generate_rank_curves.py & Manual Tuning)\n"
-    config_str += "    rank_configs = {\n"
-    
-    ranks = list(data.keys())
-    for i, r_name in enumerate(ranks):
-        r_data = data[r_name]
-        config_str += f'        "{r_name}": {{\n'
-        config_str += f'            "range_mult": {r_data["range_mult"]},\n'
-        config_str += f'            "ignore_disp_min": {r_data["ignore_disp_min"]},\n'
-        config_str += f'            "ignore_disp_max": {r_data["ignore_disp_max"]},\n'
-        config_str += f'            "ignore_disp_chance_min": {r_data["ignore_disp_chance_min"]},\n'
-        config_str += f'            "ignore_disp_chance_max": {r_data["ignore_disp_chance_max"]},\n'
-        config_str += f'            "burst_logic": {r_data["burst_logic"]}\n'
-        config_str += '        }' + (',' if i != len(ranks) - 1 else '') + '\n'
-    config_str += '    }'
-
-    if update_file:
-        target = "patch_long_range_combat.py"
-        if not os.path.exists(target):
-            print(f"Error: {target} not found.")
-            return
-
-        with open(target, 'r') as f:
-            content = f.read()
-
-        pattern = r'[ \t]*# Fine-tuning rules \(Generated via generate_rank_curves\.py.*?\n    \}'
-        new_content = re.sub(pattern, config_str, content, flags=re.DOTALL)
-
-        if new_content == content:
-            # Fallback
-            pattern = r'[ \t]*# Fine-tuning rules.*?\n    rank_configs = \{.*?\n    \}'
-            new_content = re.sub(pattern, config_str, content, flags=re.DOTALL)
-
-        with open(target, 'w') as f:
-            f.write(new_content)
-        print(f"Successfully updated {target}")
-    else:
-        print(config_str)
-
 def print_burst_projections(output_to_file=False):
-    data = get_config_data()
+    data = get_rank_configs()
     burst_scenarios = [
         (3, 6),
         (4, 14),
@@ -211,19 +163,25 @@ def print_burst_projections(output_to_file=False):
 
     final_output = "\n".join(output)
     if output_to_file:
-        with open("curves.md", "w") as f:
+        import os
+        # Path relative to the script
+        target = os.path.join(os.path.dirname(__file__), "../../../curves.md")
+        with open(target, "w") as f:
             f.write(final_output)
-        print("Burst projections (Markdown) written to curves.md")
+        print(f"Burst projections (Markdown) written to {os.path.abspath(target)}")
     else:
         print(final_output)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate rank configs for LongRangeCombat mod.")
-    parser.add_argument("-u", "--update", action="store_true", help="Update patch_long_range_combat.py directly.")
+    import argparse
+    parser = argparse.ArgumentParser(description="NPC Rank Curve Inspection Tool")
     parser.add_argument("-i", "--inspect", action="store_true", help="Print burst projections to curves.md for inspection.")
     args = parser.parse_args()
     
     if args.inspect:
         print_burst_projections(output_to_file=True)
     else:
-        generate_configs(update_file=args.update)
+        data = get_rank_configs()
+        # Just print the config as a sanity check
+        import pprint
+        pprint.pprint(data)

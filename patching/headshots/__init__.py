@@ -1,10 +1,7 @@
 import os
 import re
 import patching_script_general as psg
-
-# Constants
-BASE_DIR = r'C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData'
-MOD_ROOT = r'C:\dev\stalker2\mods\mods\RewardingHeadshots\RewardingHeadshots_P\Stalker2\Content\GameLite\GameData'
+from patch_config import SOURCE_DUMP, get_mod_root
 
 V1_HEAD = 8.0
 V1_BODY = 2.0
@@ -19,7 +16,6 @@ def get_original_coefs(struct_data):
 
 def calculate_coefs(original, is_zombie=False, is_special=False):
     if is_zombie:
-        # Head: 30%, Body: 30%, Limbs: 25%
         return {
             'Head': psg.round_to_nearest(original['Head'] * 1.3, 0.5),
             'Body': psg.round_to_nearest(original['Body'] * 1.3, 0.5),
@@ -34,7 +30,6 @@ def calculate_coefs(original, is_zombie=False, is_special=False):
             res[bone] = psg.round_to_nearest(val, 0.5)
         return res
     else:
-        # Head: 50%, Body: 30%, Limbs: 20%
         return {
             'Head': psg.round_to_nearest(original['Head'] * 1.5, 0.5),
             'Body': psg.round_to_nearest(original['Body'] * 1.3, 0.5),
@@ -68,12 +63,14 @@ def find_defining_parent(struct_name, patcher):
         current = patcher.global_tree.get(current)
     return None
 
-def main():
-    patcher = psg.ModPatcher(BASE_DIR, MOD_ROOT)
+def run():
+    print("--- Running RewardingHeadshots Patching ---")
+    mod_root = get_mod_root("RewardingHeadshots")
+    patcher = psg.ModPatcher(SOURCE_DUMP, mod_root)
     
-    # We need all ObjPrototypes for inheritance
-    obj_proto_dir = os.path.join(BASE_DIR, 'ObjPrototypes')
-    files = [os.path.join('ObjPrototypes', f) for f in os.listdir(obj_proto_dir) if f.endswith('.cfg')]
+    obj_proto_rel_dir = 'Content/GameLite/GameData/ObjPrototypes'
+    obj_proto_abs_dir = os.path.join(SOURCE_DUMP, obj_proto_rel_dir)
+    files = [os.path.join(obj_proto_rel_dir, f) for f in os.listdir(obj_proto_abs_dir) if f.endswith('.cfg')]
     patcher.load_files(files)
     
     target_structs = patcher.get_all_inheritors("NPCBase")
@@ -94,18 +91,13 @@ def main():
         
         final = calculate_coefs(orig_coefs, is_zombie=is_z, is_special=has_local and not is_z)
         
-        # Format BoneDamageCoefficients
         bdc = [
             f"[*] : struct.begin\n         DamageBone = EDamageBone::Head\n         DamageCoef = {final['Head']:.1f}\n      struct.end",
             f"[*] : struct.begin\n         DamageBone = EDamageBone::Body\n         DamageCoef = {final['Body']:.1f}\n      struct.end",
             f"[*] : struct.begin\n         DamageBone = EDamageBone::Limbs\n         DamageCoef = {final['Limbs']:.1f}\n      struct.end"
         ]
         
-        # Use full struct.begin to avoid auto-adding {bpatch} to BoneDamageCoefficients
         patch_text = psg.generate_bpatch(s, ["BoneDamageCoefficients : struct.begin"], bdc)
         patcher.add_patch(filename, patch_text)
         
     patcher.save_all("RewardingHeadshots")
-
-if __name__ == "__main__":
-    main()

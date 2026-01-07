@@ -285,20 +285,29 @@ def patch_npc_attributes(patcher, weapon_stats):
                         if t == "Experienced":
                             if bracket == "Short": 
                                 ignore_max = 1
+                            elif bracket == "Medium":
+                                ignore_max = 1
+                            elif bracket == "Long":
+                                ignore_max = 0 # No chance for Experienced at Long
                         elif t == "Veteran":
                             if bracket == "Short": 
                                 ignore_min = 1
                                 ignore_max = 1
-                            elif bracket == "Medium":
-                                ignore_max = 1
+                            else: # Medium and Long
+                                ignore_max = 1 # Chance to hit (might miss)
+                                ignore_min = 0
                         elif t == "Master":
-                            ignore_max = 1
+                            ignore_max = 1 # Always a chance (might miss)
                             if bracket in ["Short", "Medium"]:
-                                ignore_min = 1
+                                ignore_min = 1 # Guaranteed hit (1/1)
                             else:
-                                ignore_min = 0 
+                                ignore_min = 0 # Might miss (0/1)
 
-                    if t == "Master" and bracket == "Long":
+                    if t == "Zombie":
+                        ignore_max = 1
+
+
+                    if t == "Master" and bracket == "Long" and not is_sniper:
                         original_ignore_max = psg.get_value(b_data, "IgnoreDispersionMaxShots") or 0
                         if fsd < 160:
                              ignore_max = max(1, original_ignore_max) 

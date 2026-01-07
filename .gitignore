@@ -3,5 +3,6 @@ resources
 *.pak
 *.7z
 *.zip
+*.html
 
 __pycache__

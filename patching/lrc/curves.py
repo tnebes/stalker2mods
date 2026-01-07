@@ -54,7 +54,7 @@ def get_rank_configs():
     floors_max = {
         "Newbie": {"Short": 1, "Medium": 1, "Long": 0},
         "Experienced": {"Short": 1, "Medium": 1, "Long": 0},
-        "Veteran": {"Short": 1, "Medium": 1, "Long": 0},
+        "Veteran": {"Short": 1, "Medium": 1, "Long": 1},
         "Master": {"Short": 1, "Medium": 1, "Long": 1},
         "Zombie": {"Short": 1, "Medium": 0, "Long": 0}
     }

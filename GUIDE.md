@@ -2,6 +2,27 @@
 
 This guide aggregates essential rules, naming conventions, and best practices for modding S.T.A.L.K.E.R. 2 configuration files (`.cfg`), based on community findings and documentation.
 
+## 0. Verifying Mod Loading (UE4SS)
+
+Before diving into complex changes, always verify if your mod is even being mounted by the engine. You can check this using the `ue4ss zdev` console or logs. Look for `LogPakFile` entries like these:
+
+```log
+LogPakFile: Display: Found Pak file ../../../Stalker2/Content/Paks/~mods/SavantsZone_P.pak attempting to mount.
+LogPakFile: Display: Mounting pak file ../../../Stalker2/Content/Paks/~mods/SavantsZone_P.pak.
+LogPakFile: Warning: IoStore container "../../../Stalker2/Content/Paks/~mods/SavantsZone_P.utoc" not found
+LogPakFile: Display: Mounted Pak file '../../../Stalker2/Content/Paks/~mods/SavantsZone_P.pak', mount point: '../../../Stalker2/Content/GameLite/GameData/'
+```
+
+> [!TIP]
+> If you don't see the "Mounted Pak file" message with the correct mount point (`.../GameLite/GameData/`), your mod folder structure or pak naming (ensure it ends in `_P.pak`) might be incorrect.
+
+## 0.1 Best Practice: The "Guardian CFG"
+
+A "Guardian CFG" is a simple, highly visible modification (like doubling jump height or sprint speed) that you include in every test build.
+
+- **Purpose**: Immediate visual confirmation that the game is actually reading your modded values.
+- **Example**: Set `SprintSpeed = 1000` in `GeneralNPCObjPrototypes.cfg`. Once you confirm the mod is loaded, you can safely debug the more subtle logic changes.
+
 ## 1. Naming Conventions & Files
 
 There are two main types of configuration files you will encounter, each requiring a specific naming pattern for patches.
@@ -348,6 +369,35 @@ This file is the "visual" counterpart to the NPC version, but specifically for t
 - **AnimBlueprint**: Points to the First-Person (FP) animation blueprints.
 - **MuzzleSocketName**: Usually `MuzzleFOV`, specifically for the player's camera-aligned muzzle flashes.
 - **DefaultWeaponSettingsSID**: Links to the player's damage and dispersion settings in `PlayerWeaponSettingsPrototypes.cfg`.
+
+# Additional Technical Observations
+
+From automating patches with scripts like `patch_long_range_combat.py`, several patterns have emerged:
+
+### 1. Recursive Inheritance Tracing
+
+When patching, you often need to target specific "classes" of items (e.g., all shotguns). Since SIDs can be anything, you must trace the `refkey` inheritance back to a known base template like `TemplateShotgun`.
+
+### 2. Deep Struct Nesting
+
+Most NPC parameters are buried deep within nested structs. You must use `{bpatch}` at every level:
+
+```ini
+NPCBase : struct.begin {bpatch}
+   CombatParameters : struct.begin {bpatch}
+      EnemyCouldBeVisibleMaxDistance = 5000.0f
+   struct.end
+struct.end
+```
+
+### 3. Linking Attributes to Settings
+
+The `Attributes` files (e.g., `NPCWeaponAttributesPrototypes.cfg`) handle **behavior** (bursts, distances), while `Settings` files handle **stats** (damage, dispersion). They are linked by the `CharacterWeaponSettingsSID` property inside the Attributes struct.
+
+### 4. Folder Technique Relative Paths
+
+When using the "Folder Technique" (e.g., `GameData/ItemPrototypes/MyPatch.cfg`), your `refurl` must use `../` to point back to the original file in the parent directory:
+`{refurl=../ItemPrototypes.cfg; refkey=...}`
 
 # Additional Notes
 

@@ -178,6 +178,7 @@ class ModPatcher:
         self.global_tree = {}
         self.file_contents = {}
         self.struct_to_file = {}
+        self.filename_to_rel_path = {}
         self.patches = {} # filename -> list of patch strings
 
     def load_files(self, relative_paths):
@@ -195,6 +196,7 @@ class ModPatcher:
             with open(abs_path, 'r', encoding='utf-8-sig') as f:
                 content = f.read()
                 self.file_contents[filename] = content
+                self.filename_to_rel_path[filename] = rel_path
                 for struct_name in tree.keys():
                     self.struct_to_file[struct_name] = (filename, rel_path)
 
@@ -216,12 +218,9 @@ class ModPatcher:
         for filename, patches in self.patches.items():
             base_name = os.path.splitext(filename)[0]
             
-            # Find the relative path from struct_to_file mapping or use first match
-            rel_dir = ""
-            for s, (fname, fpath) in self.struct_to_file.items():
-                if fname == filename:
-                    rel_dir = os.path.dirname(fpath)
-                    break
+            # Use the stored relative path for the filename
+            rel_path = self.filename_to_rel_path.get(filename, "")
+            rel_dir = os.path.dirname(rel_path) if rel_path else ""
             
             target_dir = os.path.join(self.mod_root, rel_dir, base_name)
             os.makedirs(target_dir, exist_ok=True)

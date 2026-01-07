@@ -62,6 +62,57 @@ def get_config_data():
         "Zombie": {"Short": 1, "Medium": 0, "Long": 0}
     }
 
+    # Burst size and Guaranteed hit parameters
+    burst_logic = {
+        "Newbie": {
+            "burst_mult": 1.25,  # 25% more ammo
+            "min_add": 0,
+            "max_add": 0,
+            "guaranteed_add_long": 0,
+            "guaranteed_add_medium": 0,
+            "guaranteed_add_short": 0
+        },
+        "Experienced": {
+            "burst_mult": 1.0, 
+            "long_burst_mult": 0.9, # 10% fewer at long
+            "min_add": 0,
+            "max_add": 0,
+            "guaranteed_add_long": 0,
+            "guaranteed_add_medium": 0,
+            "guaranteed_add_short": 0,
+            "ignore_disp_max_inc_if_small": 1 # Configurable: increase by 1 if shots < 4
+        },
+        "Veteran": {
+            "burst_mult": 1.0,
+            "long_burst_mult": 0.75, # 25% fewer at long
+            "medium_burst_mult": 0.9, # 10% fewer at medium
+            "min_add": 0,
+            "max_add": 0,
+            "guaranteed_add_long": 1, # +1 max shot long
+            "guaranteed_add_medium_min": 1, # +1 min shot medium
+            "guaranteed_add_medium_max": 0,
+            "guaranteed_add_short": 0
+        },
+        "Master": {
+            "burst_mult": 1.0,
+            "long_burst_mult": 0.5, # -50% long
+            "medium_burst_mult": 0.75, # -25% medium
+            "short_burst_mult": 1.25, # +25% short
+            "min_add": 0,
+            "max_add": 0,
+            "guaranteed_add_long_min": 0, # USER: "has no guaranteed dispersion min shot" at long
+            "guaranteed_add_long_max": -1, # USER: "loses 1 guaranteed dispersion max"
+            "guaranteed_add_medium_min": 0,
+            "guaranteed_add_medium_max": 1,
+            "guaranteed_add_short_mag_pct": 0.04 # USER: "nerf master at short range slightly" (was 0.05)
+        },
+        "Zombie": {
+            "burst_mult": 1.5, # USER: "expend 50% more ammo"
+            "min_add": 0,
+            "max_add": 0
+        }
+    }
+
     results = {}
     for r_name in ranks:
         r_val = rank_map[r_name]
@@ -79,7 +130,8 @@ def get_config_data():
             "ignore_disp_min": floors_min[r_name],
             "ignore_disp_max": floors_max[r_name],
             "ignore_disp_chance_min": chance_min,
-            "ignore_disp_chance_max": chance_max
+            "ignore_disp_chance_max": chance_max,
+            "burst_logic": burst_logic.get(r_name, {})
         }
     return results
 
@@ -97,7 +149,8 @@ def generate_configs(update_file=False):
         config_str += f'            "ignore_disp_min": {r_data["ignore_disp_min"]},\n'
         config_str += f'            "ignore_disp_max": {r_data["ignore_disp_max"]},\n'
         config_str += f'            "ignore_disp_chance_min": {r_data["ignore_disp_chance_min"]},\n'
-        config_str += f'            "ignore_disp_chance_max": {r_data["ignore_disp_chance_max"]}\n'
+        config_str += f'            "ignore_disp_chance_max": {r_data["ignore_disp_chance_max"]},\n'
+        config_str += f'            "burst_logic": {r_data["burst_logic"]}\n'
         config_str += '        }' + (',' if i != len(ranks) - 1 else '') + '\n'
     config_str += '    }'
 

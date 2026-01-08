@@ -228,8 +228,16 @@ def patch_npc_attributes(patcher, weapon_stats):
             dist_min = psg.get_value(t_data, "CombatEffectiveFireDistanceMin")
             if dist_max:
                 new_dist_max = dist_max * config['range_mult']
+                if not is_shotgun:
+                    new_dist_max *= COMBAT_DISTANCE_MULT
+
                 if is_shotgun:
                     new_dist_max *= SHOTGUN_MAX_DIST_MULT 
+
+                if is_sniper and t != "Master":
+                    new_dist_max *= SNIPER_MAX_DIST_MULT                    
+                elif is_sniper and t == "Master":
+                    new_dist_max *= MASTER_SNIPER_MAX_DIST_MULT
                 
                 current_min = dist_min if dist_min is not None else 0
                 if new_dist_max <= current_min:
@@ -251,21 +259,50 @@ def patch_npc_attributes(patcher, weapon_stats):
                 new_min, new_max = orig_min, orig_max
 
                 if process_burst:
-                    mult = blogic.get("burst_mult", 1.0)
-                    if bracket == "Long": mult *= blogic.get("long_burst_mult", 1.0)
-                    elif bracket == "Medium": mult *= blogic.get("medium_burst_mult", 1.0)
-                    elif bracket == "Short": mult *= blogic.get("short_burst_mult", 1.0)
+                    base_mult = blogic.get("burst_mult", 1.0)
+                    mult_min = base_mult
+                    mult_max = base_mult
 
-                    new_min = int(orig_min * mult) + blogic.get("min_add", 0)
-                    new_max = int(orig_max * mult) + blogic.get("max_add", 0)
+                    if bracket == "Long": 
+                        mult_max *= blogic.get("long_burst_mult", 1.0)
+                        # Use min_long_burst_mult if avail, else fallback to long_burst_mult
+                        mult_min *= blogic.get("min_long_burst_mult", blogic.get("long_burst_mult", 1.0))
+                    elif bracket == "Medium": 
+                        mult_max *= blogic.get("medium_burst_mult", 1.0)
+                        mult_min = mult_max
+                    elif bracket == "Short": 
+                        mult_max *= blogic.get("short_burst_mult", 1.0)
+                        mult_min = mult_max
 
-                    if mult > 1.0 and new_max == orig_max:
+                    new_min = int(orig_min * mult_min) + blogic.get("min_add", 0)
+                    new_max = int(orig_max * mult_max) + blogic.get("max_add", 0)
+
+                    if mult_max > 1.0 and new_max == orig_max:
                         new_max += 1
+
+                    if t == "Master" and bracket == "Long":
+                        limit_min_val = max(1, int(max_ammo * 0.05))
+                        limit_max_val = max(1, int(max_ammo * 0.10))
+                        
+                        limit_min = min(2, limit_min_val)
+                        limit_max = min(3, limit_max_val)
+                        
+                        new_min = min(new_min, limit_min)
+                        new_max = min(new_max, limit_max)
+                    
+                    # Ensure Min < Max (User requirement) regardless of clamping
+                    if new_min >= new_max:
+                        new_max = new_min + 1
 
                     new_max = min(new_max, max_ammo)
                     new_min = min(new_min, new_max)
+                    
+                    # If after clamping to max_ammo, Min >= Max (meaning both hit ceiling), reduce Min
+                    if new_min >= new_max and new_min > 1:
+                        new_min = new_max - 1
+                    
                     if new_min < 1: new_min = 1
-                    if new_max < new_min: new_max = new_min
+                    if new_max < new_min: new_max = new_min + 1
 
                 ignore_min, ignore_max = None, None
                 if process_dispersion:

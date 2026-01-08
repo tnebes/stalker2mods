@@ -63,6 +63,8 @@ def get_rank_configs():
     burst_logic = {
         "Newbie": {
             "burst_mult": 1.25,
+            "min_long_burst_mult": 1.5,
+            "long_burst_mult": 1.5,
             "min_add": 0,
             "max_add": 0,
             "guaranteed_add_long": 0,
@@ -71,7 +73,7 @@ def get_rank_configs():
         },
         "Experienced": {
             "burst_mult": 1.0, 
-            "long_burst_mult": 0.9,
+            "long_burst_mult": 1.15,
             "min_add": 0,
             "max_add": 0,
             "guaranteed_add_long": 0,

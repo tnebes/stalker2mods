@@ -95,6 +95,9 @@ def patch_weapons(patcher):
 
     if npc_content:
         shotgun_settings_sids = patcher.get_all_inheritors("TemplateShotgun")
+        sniper_settings_sids = patcher.get_all_inheritors("TemplateSniper")
+        pistol_settings_sids = patcher.get_all_inheritors("TemplatePistol")
+        smg_settings_sids = patcher.get_all_inheritors("TemplateSMG")
         structs = re.findall(r'^(\w+)\s*:\s*struct\.begin', npc_content, re.MULTILINE)
         count = 0
         for s in structs:
@@ -108,21 +111,34 @@ def patch_weapons(patcher):
 
             props = {}
             if s not in shotgun_settings_sids:
+                is_sniper = s in sniper_settings_sids
+                is_pistol = s in pistol_settings_sids
+                is_smg = s in smg_settings_sids
+                
+                disp_mult = NPC_WEAPON_DISPERSION_MULT
+                
+                if is_sniper:
+                    disp_mult *= SNIPER_DISPERSION_SCALING
+                elif is_pistol:
+                    disp_mult *= PISTOL_DISPERSION_SCALING
+                elif is_smg:
+                    disp_mult *= SMG_DISPERSION_SCALING
+
                 for key in ["DispersionRadius", "DispersionRadiusZombieAddend"]:
                     val = psg.get_value(data, key)
                     if val is not None and isinstance(val, (int, float)):
-                        new_val = val * NPC_WEAPON_DISPERSION_MULT
+                        new_val = val * disp_mult
                         props[key] = f"{new_val:.2f}"
             
             orig_bleed = psg.get_value(data, "BaseBleeding")
             if orig_bleed is not None and isinstance(orig_bleed, (int, float)):
-                n_bleed = 0.646 * orig_bleed + 1.54
+                n_bleed = BLEEDING_BASE_MULT * orig_bleed + BLEEDING_BASE_ADD
                 props["BaseBleeding"] = f"{n_bleed:.1f}"
             
             orig_chance = psg.get_value(data, "ChanceBleedingPerShot")
             if orig_chance is not None and isinstance(orig_chance, (int, float)):
-                n_chance = min(orig_chance * 0.75, orig_chance - 0.01)
-                n_chance = max(0.01, n_chance) 
+                n_chance = min(orig_chance * BLEEDING_CHANCE_MULT, orig_chance - BLEEDING_CHANCE_SUB)
+                n_chance = max(BLEEDING_CHANCE_MIN_FLOOR, n_chance) 
                 props["ChanceBleedingPerShot"] = f"{round(n_chance * 100)}%"
 
             if props:
@@ -181,8 +197,8 @@ def patch_npc_attributes(patcher, weapon_stats):
             stripped_sid = settings_sid.replace("_NPC", "").replace("_Player", "")
             w_stats = weapon_stats.get(stripped_sid, {})
 
-        max_ammo = w_stats.get('MaxAmmo', 30) 
-        fsd = w_stats.get('FirstShotDispersionRadius', 500.0) 
+        max_ammo = w_stats.get('MaxAmmo', DEFAULT_MAX_AMMO) 
+        fsd = w_stats.get('FirstShotDispersionRadius', DEFAULT_FSD) 
 
         behavior_types_full = psg.get_struct_content(ai_params, "BehaviorTypes")
         if not behavior_types_full: continue
@@ -213,11 +229,11 @@ def patch_npc_attributes(patcher, weapon_stats):
             if dist_max:
                 new_dist_max = dist_max * config['range_mult']
                 if is_shotgun:
-                    new_dist_max *= 0.75 
+                    new_dist_max *= SHOTGUN_MAX_DIST_MULT 
                 
                 current_min = dist_min if dist_min is not None else 0
                 if new_dist_max <= current_min:
-                    new_min = new_dist_max * 0.9
+                    new_min = new_dist_max * MIN_DIST_FACTOR
                     rank_lines.append(f"            CombatEffectiveFireDistanceMin = {new_min:.1f}")
                 
                 rank_lines.append(f"            CombatEffectiveFireDistanceMax = {new_dist_max:.1f}")
@@ -261,7 +277,7 @@ def patch_npc_attributes(patcher, weapon_stats):
                     ignore_min = max(floor_min, int(new_min * chance_min))
                     ignore_max = max(floor_max, int(new_min * chance_max))
 
-                    if blogic.get("ignore_disp_max_inc_if_small") and new_max < 4:
+                    if blogic.get("ignore_disp_max_inc_if_small") and new_max < IGNORE_DISP_LOW_AMMO_THRESHOLD:
                         ignore_max += 1
 
                     if bracket == "Long": ignore_max += blogic.get("guaranteed_add_long", 0)
@@ -309,7 +325,7 @@ def patch_npc_attributes(patcher, weapon_stats):
 
                     if t == "Master" and bracket == "Long" and not is_sniper:
                         original_ignore_max = psg.get_value(b_data, "IgnoreDispersionMaxShots") or 0
-                        if fsd < 160:
+                        if fsd < MASTER_FSD_THRESHOLD:
                              ignore_max = max(1, original_ignore_max) 
                         else:
                              ignore_max = max(0, original_ignore_max - 1) 

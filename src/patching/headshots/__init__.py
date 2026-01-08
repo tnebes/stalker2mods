@@ -17,23 +17,23 @@ def get_original_coefs(struct_data):
 def calculate_coefs(original, is_zombie=False, is_special=False):
     if is_zombie:
         return {
-            'Head': psg.round_to_nearest(original['Head'] * 1.3, 0.5),
-            'Body': psg.round_to_nearest(original['Body'] * 1.3, 0.5),
-            'Limbs': psg.round_to_nearest(original['Limbs'] * 1.25, 0.5)
+            'Head': psg.round_to_nearest(original['Head'] * 1.3, 0.1),
+            'Body': psg.round_to_nearest(original['Body'] * 1.1, 0.1),
+            'Limbs': psg.round_to_nearest(original['Limbs'] * 0.9, 0.1)
         }
     elif is_special:
-        rules = {'Head': (4.0, 3.0), 'Body': (2.0, 2.0), 'Limbs': (0.5, 1.2)}
+        rules = {'Head': (3.5, 3.0), 'Body': (1.75, 2.0), 'Limbs': (0.5, 1.2)}
         res = {}
         for bone, (inc, mul) in rules.items():
             orig = original[bone]
             val = orig + inc if orig <= 1.0 else orig * mul
-            res[bone] = psg.round_to_nearest(val, 0.5)
+            res[bone] = psg.round_to_nearest(val, 0.1)
         return res
     else:
         return {
-            'Head': psg.round_to_nearest(original['Head'] * 1.5, 0.5),
-            'Body': psg.round_to_nearest(original['Body'] * 1.3, 0.5),
-            'Limbs': psg.round_to_nearest(original['Limbs'] * 1.2, 0.5)
+            'Head': psg.round_to_nearest(original['Head'] * 1.45, 0.1),
+            'Body': psg.round_to_nearest(original['Body'] * 1.2, 0.1),
+            'Limbs': psg.round_to_nearest(original['Limbs'] * 1.10, 0.1)
         }
 
 def is_zombie_check(struct_name, patcher):

@@ -4,5 +4,6 @@ resources
 *.7z
 *.zip
 *.html
+.idea
 
 __pycache__

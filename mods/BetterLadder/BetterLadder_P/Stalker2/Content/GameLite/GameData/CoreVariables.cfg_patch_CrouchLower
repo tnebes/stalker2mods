@@ -1,0 +1,7 @@
+DefaultConfig : struct.begin {bpatch}
+    ClimbViewYawLimit = 90
+    ClimbViewPitchLimit = 75
+    ClimbDownSpeed = 1.2f
+    ClimbFastAscendingSpeedScale = 1.3f
+    ClimbMediumAscendingSpeedScale = 1.2f
+struct.end

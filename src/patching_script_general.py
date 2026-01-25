@@ -124,6 +124,50 @@ def has_nested_node(file_content, struct_name, node_path):
         
     return True
 
+def find_node_path(struct_content, target_key, target_parent=None):
+    """
+    Finds the hierarchical path (list of node names) to a target key within a struct.
+    If target_parent is specified, it returns the path where target_key is under that parent.
+    """
+    # Find all struct.begin, struct.end, and key= markers
+    begin_pat = re.compile(r'^\s*(\w+)\s*:\s*struct\.begin', re.MULTILINE | re.IGNORECASE)
+    end_pat = re.compile(r'^\s*struct\.end', re.MULTILINE | re.IGNORECASE)
+    key_pat = re.compile(r'^\s*(\w+)\s*=', re.MULTILINE | re.IGNORECASE)
+
+    all_markers = []
+    for m in begin_pat.finditer(struct_content):
+        all_markers.append({'type': 'begin', 'name': m.group(1), 'pos': m.start()})
+    for m in end_pat.finditer(struct_content):
+        all_markers.append({'type': 'end', 'pos': m.start()})
+    for m in key_pat.finditer(struct_content):
+        all_markers.append({'type': 'key', 'name': m.group(1), 'pos': m.start()})
+
+    all_markers.sort(key=lambda x: x['pos'])
+
+    current_path = []
+    found_paths = []
+
+    for marker in all_markers:
+        if marker['type'] == 'begin':
+            current_path.append(marker['name'])
+        elif marker['type'] == 'end':
+            if current_path:
+                current_path.pop()
+        elif marker['type'] == 'key':
+            if marker['name'].lower() == target_key.lower():
+                if target_parent:
+                    # Check if target_parent is anywhere in the stack
+                    if any(p.lower() == target_parent.lower() for p in current_path):
+                        found_paths.append(list(current_path))
+                else:
+                    found_paths.append(list(current_path))
+
+    if not found_paths:
+        return None
+
+    # Return the first matching path
+    return found_paths[0]
+
 def generate_bpatch(struct_name, nested_path=None, values=None, direct_properties=None, root_properties=None):
     """
     Generates a {bpatch} block.
@@ -209,6 +253,31 @@ class ModPatcher:
         if filename not in self.patches:
             self.patches[filename] = []
         self.patches[filename].append(patch_text)
+
+    def smart_add_patch(self, filename, struct_name, key, value, parent_node=None):
+        """
+        Automatically finds the path to the key within the struct and generates a {bpatch}.
+        """
+        content = self.file_contents.get(filename)
+        if not content:
+            return False
+            
+        struct_content = get_struct_content(content, struct_name)
+        if not struct_content:
+            return False
+            
+        path = find_node_path(struct_content, key, parent_node)
+        if not path:
+            return False
+            
+        # The first entry in path is the struct_name itself, we need the nested part
+        nested_path = []
+        if len(path) > 1:
+            nested_path = path[1:]
+            
+        patch_text = generate_bpatch(struct_name, nested_path=nested_path, direct_properties={key: value})
+        self.add_patch(filename, patch_text)
+        return True
 
     def save_all(self, mod_name_suffix):
         if not self.patches:

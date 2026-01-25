@@ -1,6 +1,6 @@
 import os
 import sys
-from patching import lrc, sway, headshots
+from patching import lrc, sway, headshots, LessShotgunRecoil
 
 def main():
     print("Starting all patching tasks...")
@@ -13,6 +13,9 @@ def main():
     
     # 3. LongRangeCombat (Refactored Module)
     lrc.run()
+
+    # 4. LessShotgunRecoil
+    LessShotgunRecoil.run()
     
     print("All patching tasks completed.")
 

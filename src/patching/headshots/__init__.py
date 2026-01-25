@@ -42,10 +42,10 @@ def is_zombie_check(struct_name, patcher):
     while current and current not in visited:
         if "zombie" in current.lower(): return True
         visited.add(current)
-        mapping = patcher.struct_to_file.get(current)
-        if mapping:
-            data = psg.get_struct_content(patcher.file_contents[mapping[0]], current)
-            if data and re.search(r'^\s*IsZombie\s*=\s*true', data, re.MULTILINE | re.IGNORECASE):
+        node = patcher.get_struct(current)
+        if node:
+            prop = node.find_child("IsZombie")
+            if prop and isinstance(prop, psg.cfg_ast.PropertyNode) and prop.value.lower() == "true":
                 return True
         current = patcher.global_tree.get(current)
     return False
@@ -55,13 +55,31 @@ def find_defining_parent(struct_name, patcher):
     visited = set()
     while current and current not in visited:
         visited.add(current)
-        mapping = patcher.struct_to_file.get(current)
-        if mapping:
-            data = psg.get_struct_content(patcher.file_contents[mapping[0]], current)
-            if data and "BoneDamageCoefficients" in data:
-                return data
+        node = patcher.get_struct(current)
+        if node and node.find_child("BoneDamageCoefficients"):
+            return node
         current = patcher.global_tree.get(current)
     return None
+
+def extract_coefs_from_ast(node):
+    res = {'Head': V1_HEAD, 'Body': V1_BODY, 'Limbs': V1_LIMBS}
+    if not node: return res
+    bdc = node.find_child("BoneDamageCoefficients")
+    found_any = False
+    if bdc and isinstance(bdc, psg.cfg_ast.StructNode):
+        for child in bdc.children:
+            if isinstance(child, psg.cfg_ast.StructNode): # Array element [*]
+                bone = child.find_child("DamageBone")
+                coef = child.find_child("DamageCoef")
+                if bone and coef:
+                    bone_name = bone.value.replace("EDamageBone::", "")
+                    try:
+                        res[bone_name] = float(coef.value)
+                        found_any = True
+                    except (ValueError, KeyError):
+                        pass
+    # If the struct exists but holds no coefficients, we return the defaults
+    return res
 
 def run():
     print("--- Running RewardingHeadshots Patching ---")
@@ -80,14 +98,12 @@ def run():
         if not filename_info: continue
         filename, _ = filename_info
         
-        content = patcher.file_contents[filename]
-        data = psg.get_struct_content(content, s)
-        
         is_z = is_zombie_check(s, patcher)
-        has_local = data and "BoneDamageCoefficients" in data
+        root_node = patcher.get_struct(s, filename)
+        has_local = root_node and root_node.find_child("BoneDamageCoefficients")
         
-        defining_data = data if has_local else find_defining_parent(s, patcher)
-        orig_coefs = get_original_coefs(defining_data) if defining_data else {'Head': V1_HEAD, 'Body': V1_BODY, 'Limbs': V1_LIMBS}
+        defining_node = root_node if has_local else find_defining_parent(s, patcher)
+        orig_coefs = extract_coefs_from_ast(defining_node) if defining_node else {'Head': V1_HEAD, 'Body': V1_BODY, 'Limbs': V1_LIMBS}
         
         final = calculate_coefs(orig_coefs, is_zombie=is_z, is_special=has_local and not is_z)
         
@@ -97,7 +113,8 @@ def run():
             f"[*] : struct.begin\n         DamageBone = EDamageBone::Limbs\n         DamageCoef = {final['Limbs']:.1f}\n      struct.end"
         ]
         
-        patch_text = psg.generate_bpatch(s, ["BoneDamageCoefficients : struct.begin"], bdc)
+        # Requirement: nested BoneDamageCoefficients should NOT have {bpatch}
+        patch_text = psg.generate_bpatch(s, ["BoneDamageCoefficients"], values=bdc, bpatch_until=1)
         patcher.add_patch(filename, patch_text)
         
     patcher.save_all("RewardingHeadshots")

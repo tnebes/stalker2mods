@@ -7,12 +7,18 @@ from .utils import get_npc_base_defaults, get_struct_names
 
 
 def patch_npc_vision(patcher):
+    filename = "GeneralNPCObjPrototypes.cfg"
+    patcher.load_files([f"Content/GameLite/GameData/ObjPrototypes/{filename}"])
+    
     inheritors = patcher.get_all_inheritors("NPCBase")
     defaults = get_npc_base_defaults(patcher)
     print(f"DEBUG: Found {len(inheritors)} NPCs inheriting from NPCBase.")
 
-    vision_multipliers = {"EnemyCouldBeVisibleMaxDistance": VISION_DISTANCE_MULT,
-        "LoseEnemyVisibilityTime": VISION_LOSE_TIME_MULT, "CheckEnemyTime": VISION_CHECK_TIME_MULT}
+    vision_multipliers = {
+        "EnemyCouldBeVisibleMaxDistance": VISION_DISTANCE_MULT,
+        "LoseEnemyVisibilityTime": VISION_LOSE_TIME_MULT, 
+        "CheckEnemyTime": VISION_CHECK_TIME_MULT
+    }
 
     count = 0
     for struct_name in inheritors:
@@ -21,23 +27,13 @@ def patch_npc_vision(patcher):
         if struct_name == "GunRpg7_GL_NPC":
             continue
 
-        filename_info = patcher.struct_to_file.get(struct_name)
-        if not filename_info: continue
-        filename, _ = filename_info
-
-        if filename != "GeneralNPCObjPrototypes.cfg":
+        # vision patches only applied to NPCs in GeneralNPCObjPrototypes
+        if patcher.struct_to_file.get(struct_name, (None,))[0] != filename:
             continue
-
-        content = patcher.file_contents[filename]
-        struct_data = psg.get_struct_content(content, struct_name)
-        if not struct_data: continue
-
-        has_cp_override = re.search(r'CombatParameters\s*:\s*struct\.begin', struct_data, re.IGNORECASE)
-        cp_content = psg.get_struct_content(struct_data, "CombatParameters") if has_cp_override else struct_data
 
         p_props = {}
         for key, mult in vision_multipliers.items():
-            v = psg.get_value(cp_content, key)
+            v = patcher.get_property_value(struct_name, key, filename)
             if v is None and key in defaults:
                 v = defaults[key]
 
@@ -46,7 +42,7 @@ def patch_npc_vision(patcher):
                 p_props[key] = f"{new_val:.4f}f"
 
         if p_props:
-            patch = psg.generate_bpatch(struct_name, ["CombatParameters"], values=None, direct_properties=p_props)
+            patch = psg.generate_bpatch(struct_name, ["CombatParameters"], direct_properties=p_props)
             patcher.add_patch(filename, patch)
             count += 1
     print(f"DEBUG: Applied vision patches to {count} structs in GeneralNPCObjPrototypes.cfg")
@@ -54,17 +50,14 @@ def patch_npc_vision(patcher):
 
 def patch_vision_scanners(patcher):
     filename = "VisionScannerPrototypes.cfg"
-    content = patcher.file_contents.get(filename)
-    if not content: return
-
-    structs = re.findall(r'^(\w+)\s*:\s*struct\.begin', content, re.MULTILINE)
+    patcher.load_files([f"Content/GameLite/GameData/AIPrototypes/{filename}"])
+    
+    structs = get_struct_names(patcher, filename)
     base_scanner = "DefaultNPC"
-    base_data = psg.get_struct_content(content, base_scanner)
-    if not base_data: return
-
+    
     scanner_defaults = {}
     for key in ["CentralVisionDistance", "PeripheralVisionDistance", "TooCloseVisionDistance"]:
-        val = psg.get_value(base_data, key)
+        val = patcher.get_property_value(base_scanner, key, filename)
         if val is not None:
             scanner_defaults[key] = val
 
@@ -74,10 +67,9 @@ def patch_vision_scanners(patcher):
         if s == "GunRpg7_GL_NPC":
             continue
 
-        data = psg.get_struct_content(content, s)
         props = {}
         for key, base_val in scanner_defaults.items():
-            val = psg.get_value(data, key)
+            val = patcher.get_property_value(s, key, filename)
             if val is None:
                 val = base_val
 
@@ -91,176 +83,195 @@ def patch_vision_scanners(patcher):
     print(f"DEBUG: Applied patches to {count} vision scanners in VisionScannerPrototypes.cfg")
 
 
-def patch_weapons(patcher):
+def patch_weapons(patcher, include_sids=None):
+    # Load all necessary files for proper inheritance chain resolution
+    # NPC -> Player -> Template inheritance chain
     npc_weapon_file = "NPCWeaponSettingsPrototypes.cfg"
-    npc_content = patcher.file_contents.get(npc_weapon_file)
+    player_weapon_file = "PlayerWeaponSettingsPrototypes.cfg"
+    base_settings_file = "CharacterWeaponSettingsPrototypes.cfg"
+    
+    patcher.load_files([
+        f"Content/GameLite/GameData/WeaponData/CharacterWeaponSettingsPrototypes/{base_settings_file}",
+        f"Content/GameLite/GameData/WeaponData/CharacterWeaponSettingsPrototypes/{player_weapon_file}",
+        f"Content/GameLite/GameData/WeaponData/CharacterWeaponSettingsPrototypes/{npc_weapon_file}"
+    ])
+    
+    # Now get inheritors - these should include NPC weapons that inherit through player weapons
+    shotgun_settings_sids = patcher.get_all_inheritors("TemplateShotgun")
+    sniper_settings_sids = patcher.get_all_inheritors("TemplateSniper")
+    pistol_settings_sids = patcher.get_all_inheritors("TemplatePistol")
+    smg_settings_sids = patcher.get_all_inheritors("TemplateSMG")
+    
+    structs = get_struct_names(patcher, npc_weapon_file)
+    count = 0
+    for s in structs:
+        if psg.is_special_npc(s): continue
+        if "RPG7" in s.upper():
+            continue
 
-    if npc_content:
-        shotgun_settings_sids = patcher.get_all_inheritors("TemplateShotgun")
-        sniper_settings_sids = patcher.get_all_inheritors("TemplateSniper")
-        pistol_settings_sids = patcher.get_all_inheritors("TemplatePistol")
-        smg_settings_sids = patcher.get_all_inheritors("TemplateSMG")
-        structs = re.findall(r'^(\w+)\s*:\s*struct\.begin', npc_content, re.MULTILINE)
-        count = 0
-        for s in structs:
-            s_clean = s.strip()
-            if psg.is_special_npc(s_clean): continue
-            if "RPG7" in s_clean.upper():
-                continue
+        # Determine weapon category
+        is_sniper = s in sniper_settings_sids or "Gauss" in s
+        is_pistol = s in pistol_settings_sids
+        is_shotgun = s in shotgun_settings_sids
+        is_smg = s in smg_settings_sids
 
-            data = psg.get_struct_content(npc_content, s)
-            if not data: continue
+        # Calculate dispersion multiplier based on weapon type
+        disp_mult = NPC_WEAPON_DISPERSION_MULT
+        
+        if is_pistol:
+            disp_mult *= PISTOL_DISPERSION_SCALING
+        elif is_smg:
+            disp_mult *= SMG_DISPERSION_SCALING
+        elif is_sniper:
+            disp_mult *= SNIPER_DISPERSION_SCALING
 
-            props = {}
-            if s not in shotgun_settings_sids:
-                is_sniper = s in sniper_settings_sids
-                is_pistol = s in pistol_settings_sids
-                is_smg = s in smg_settings_sids
+        props = {}
+        
+        # Apply dispersion changes to all weapons EXCEPT shotguns
+        if not is_shotgun:
+            for key in ["DispersionRadius", "DispersionRadiusZombieAddend"]:
+                val = patcher.get_property_value(s, key, npc_weapon_file)
+                if val is not None and isinstance(val, (int, float)):
+                    new_val = val * disp_mult
+                    props[key] = f"{new_val:.2f}"
 
-                disp_mult = NPC_WEAPON_DISPERSION_MULT
+        # Apply bleeding changes to ALL weapons (including shotguns)
+        orig_bleed = patcher.get_property_value(s, "BaseBleeding", npc_weapon_file)
+        if orig_bleed is not None and isinstance(orig_bleed, (int, float)):
+            n_bleed = BLEEDING_BASE_MULT * orig_bleed + BLEEDING_BASE_ADD
+            props["BaseBleeding"] = f"{n_bleed:.1f}"
 
-                if is_sniper:
-                    disp_mult *= SNIPER_DISPERSION_SCALING
-                elif is_pistol:
-                    disp_mult *= PISTOL_DISPERSION_SCALING
-                elif is_smg:
-                    disp_mult *= SMG_DISPERSION_SCALING
+        orig_chance = patcher.get_property_value(s, "ChanceBleedingPerShot", npc_weapon_file)
+        if orig_chance is not None and isinstance(orig_chance, (int, float)):
+            n_chance = min(orig_chance * BLEEDING_CHANCE_MULT, orig_chance - BLEEDING_CHANCE_SUB)
+            n_chance = max(BLEEDING_CHANCE_MIN_FLOOR, n_chance)
+            props["ChanceBleedingPerShot"] = f"{round(n_chance * 100)}%"
 
-                for key in ["DispersionRadius", "DispersionRadiusZombieAddend"]:
-                    val = psg.get_value(data, key)
-                    if val is not None and isinstance(val, (int, float)):
-                        new_val = val * disp_mult
-                        props[key] = f"{new_val:.2f}"
-
-            orig_bleed = psg.get_value(data, "BaseBleeding")
-            if orig_bleed is not None and isinstance(orig_bleed, (int, float)):
-                n_bleed = BLEEDING_BASE_MULT * orig_bleed + BLEEDING_BASE_ADD
-                props["BaseBleeding"] = f"{n_bleed:.1f}"
-
-            orig_chance = psg.get_value(data, "ChanceBleedingPerShot")
-            if orig_chance is not None and isinstance(orig_chance, (int, float)):
-                n_chance = min(orig_chance * BLEEDING_CHANCE_MULT, orig_chance - BLEEDING_CHANCE_SUB)
-                n_chance = max(BLEEDING_CHANCE_MIN_FLOOR, n_chance)
-                props["ChanceBleedingPerShot"] = f"{round(n_chance * 100)}%"
-
-            if props:
-                patcher.add_patch(npc_weapon_file, psg.generate_bpatch(s, direct_properties=props))
-                count += 1
-        print(
-            f"DEBUG: Applied weapon bleeding/dispersion bpatches to {count} structs in NPCWeaponSettingsPrototypes.cfg")
+        if props:
+            patcher.add_patch(npc_weapon_file, psg.generate_bpatch(s, direct_properties=props))
+            count += 1
+    print(f"DEBUG: Applied weapon bleeding/dispersion bpatches to {count} structs in NPCWeaponSettingsPrototypes.cfg")
 
     player_weapon_file = "PlayerWeaponSettingsPrototypes.cfg"
-    player_content = patcher.file_contents.get(player_weapon_file)
-    if player_content:
-        structs = re.findall(r'^(\w+)\s*:\s*struct\.begin', player_content, re.MULTILINE)
-        count = 0
-        for s in structs:
-            if psg.is_special_npc(s): continue
-            data = psg.get_struct_content(player_content, s)
-            props = {}
-            for key, mult in [("BaseComfort", PLAYER_STEALTH_COMFORT_MULT),
-                              ("FireLoudness", PLAYER_STEALTH_LOUDNESS_MULT)]:
-                val = psg.get_value(data, key)
-                if val is not None and isinstance(val, (int, float)):
-                    new_val = val * mult
-                    props[key] = f"{new_val:.4f}"
-            if props:
-                patcher.add_patch(player_weapon_file, psg.generate_bpatch(s, direct_properties=props))
-                count += 1
-        print(f"DEBUG: Applied stealth patches to {count} structs in PlayerWeaponSettingsPrototypes.cfg")
+    patcher.load_files([f"Content/GameLite/GameData/WeaponData/CharacterWeaponSettingsPrototypes/{player_weapon_file}"])
+    
+    structs = get_struct_names(patcher, player_weapon_file)
+    count = 0
+    for s in structs:
+        if psg.is_special_npc(s): continue
+        props = {}
+        for key, mult in [("BaseComfort", PLAYER_STEALTH_COMFORT_MULT),
+                          ("FireLoudness", PLAYER_STEALTH_LOUDNESS_MULT)]:
+            val = patcher.get_property_value(s, key, player_weapon_file)
+            if val is not None and isinstance(val, (int, float)):
+                new_val = val * mult
+                props[key] = f"{new_val:.4f}"
+        if props:
+            patcher.add_patch(player_weapon_file, psg.generate_bpatch(s, direct_properties=props))
+            count += 1
+    print(f"DEBUG: Applied stealth patches to {count} structs in PlayerWeaponSettingsPrototypes.cfg")
 
 
 def patch_npc_attributes(patcher, weapon_stats):
     filename = "NPCWeaponAttributesPrototypes.cfg"
-    content = patcher.file_contents.get(filename)
-    if not content: return
-
+    patcher.load_files([f"Content/GameLite/GameData/WeaponData/WeaponAttributesPrototypes/{filename}"])
+    
     shotgun_settings_sids = patcher.get_all_inheritors("TemplateShotgun")
     sniper_settings_sids = patcher.get_all_inheritors("TemplateSniper")
 
-    structs = get_struct_names(content)
+    structs = get_struct_names(patcher, filename)
     count = 0
 
     for s in structs:
-        s_clean = s.strip()
-        if psg.is_special_npc(s_clean): continue
-        if "RPG7" in s_clean.upper():
+        if psg.is_special_npc(s): continue
+        if "RPG7" in s.upper():
             continue
-        data = psg.get_struct_content(content, s)
 
-        ai_params = psg.get_struct_content(data, "AIParameters")
-        if not ai_params: continue
+        node = patcher.get_struct(s, filename)
+        if not node: continue
 
-        settings_sid_match = re.search(r'CharacterWeaponSettingsSID\s*=\s*(\w+)', data, re.IGNORECASE)
-        settings_sid = settings_sid_match.group(1) if settings_sid_match else None
+        ai_params = node.find_child("AIParameters")
+        if not ai_params or not isinstance(ai_params, psg.cfg_ast.StructNode): continue
 
-        is_shotgun = settings_sid in shotgun_settings_sids if settings_sid else False
-        is_sniper = settings_sid in sniper_settings_sids if settings_sid else False
-
-        w_stats = weapon_stats.get(settings_sid, {}) if settings_sid else {}
-        if not w_stats and settings_sid:
-            stripped_sid = settings_sid.replace("_NPC", "").replace("_Player", "")
-            w_stats = weapon_stats.get(stripped_sid, {})
-
-        max_ammo = w_stats.get('MaxAmmo', DEFAULT_MAX_AMMO)
-        fsd = w_stats.get('FirstShotDispersionRadius', DEFAULT_FSD)
-
-        behavior_types_full = psg.get_struct_content(ai_params, "BehaviorTypes")
-        if not behavior_types_full: continue
-
-        body = "\n".join(behavior_types_full.splitlines()[1:])
-        indents = re.findall(r'^(\s+)\w+\s*:\s*struct\.begin', body, re.MULTILINE)
-        if not indents: continue
-        min_indent = min(len(i) for i in indents)
-        types = re.findall(rf'^\s{{{min_indent}}}(\w+)\s*:\s*struct\.begin', body, re.MULTILINE)
+        behavior_types = ai_params.find_child("BehaviorTypes")
+        if not behavior_types or not isinstance(behavior_types, psg.cfg_ast.StructNode): continue
 
         sid_patch_lines = [f"{s} : struct.begin {{bpatch}}", "   AIParameters : struct.begin {bpatch}",
             "      BehaviorTypes : struct.begin {bpatch}"]
         has_any_sid_change = False
 
-        for t in types:
-            t_data = psg.get_struct_content(behavior_types_full, t)
+        for t_node in behavior_types.children:
+            if not isinstance(t_node, psg.cfg_ast.StructNode): continue
+            t = t_node.name
+
+            # Find setings SID for this weapon - usually defined in each behavior rank in NPC attributes
+            sid_prop = t_node.find_child("CharacterWeaponSettingsSID")
+            settings_sid = sid_prop.value if sid_prop else None
+
+            is_shotgun = settings_sid in shotgun_settings_sids if settings_sid else False
+            is_sniper = settings_sid in sniper_settings_sids if settings_sid else False
+
+            # Special Rule: Consider Vintar and Gauss as snipers
+            if settings_sid and any(x in settings_sid for x in ["Vintar", "Gvintar", "Gauss"]):
+                is_sniper = True
+            
+            w_stats = weapon_stats.get(settings_sid, {}) if settings_sid else {}
+            if not w_stats and settings_sid:
+                stripped_sid = settings_sid.replace("_NPC", "").replace("_Player", "")
+                w_stats = weapon_stats.get(stripped_sid, {})
+
+            max_ammo = w_stats.get('MaxAmmo', DEFAULT_MAX_AMMO)
+            fsd = w_stats.get('FirstShotDispersionRadius', DEFAULT_FSD)
+            
             config = RANK_CONFIGS.get(t, {"range_mult": 1.5, "burst_logic": {}})
             blogic = config.get("burst_logic", {})
 
-            rank_lines = [f"         {t} : struct.begin {{bpatch}}"]
+            rank_lines = [ f"         {t} : struct.begin {{bpatch}}" ]
             has_any_rank_change = False
+            
+            def get_node_val(node, key):
+                p = node.find_child(key)
+                if p and isinstance(p, psg.cfg_ast.PropertyNode):
+                    val = psg.parse_cfg_value(p.value)
+                    return val
+                return None
 
-            dist_max = psg.get_value(t_data, "CombatEffectiveFireDistanceMax")
-            dist_min = psg.get_value(t_data, "CombatEffectiveFireDistanceMin")
-            if dist_max:
-                if is_shotgun:
-                    new_dist_max = dist_max * config['range_mult'] * SHOTGUN_MAX_DIST_MULT
+            try:
+                dist_max = get_node_val(t_node, "CombatEffectiveFireDistanceMax")
+                dist_min = get_node_val(t_node, "CombatEffectiveFireDistanceMin")
+                
+                if dist_max is not None and not isinstance(dist_max, (int, float)):
+                    raise ValueError(f"Struct {s}, Rank {t}: CombatEffectiveFireDistanceMax is non-numeric: {dist_max}")
 
-                else:
-                    # Asymptotic Normalization
-                    # Input: Base distance * Rank Multiplier
-                    # Output: Cap * (1 - exp(-Input * k))
+                if dist_max:
+                    rmult = config['range_mult']
+                    if is_shotgun:
+                        new_dist_max = dist_max * rmult * SHOTGUN_MAX_DIST_MULT
+                    else:
+                        input_dist = dist_max * rmult
+                        cap = RANGE_CAP_SNIPER if is_sniper else RANGE_CAP_STD
+                        new_dist_max = cap * (1 - math.exp(-input_dist * NORM_K))
 
-                    input_dist = dist_max * config['range_mult']
+                    current_min = dist_min if (dist_min is not None and isinstance(dist_min, (int, float))) else 0
+                    if new_dist_max <= current_min:
+                        new_min = new_dist_max * MIN_DIST_FACTOR
+                        rank_lines.append(f"            CombatEffectiveFireDistanceMin = {new_min:.1f}")
 
-                    cap = RANGE_CAP_SNIPER if is_sniper else RANGE_CAP_STD
-
-                    # Formula: Cap * (1 - e^(-Input * k))
-                    new_dist_max = cap * (1 - math.exp(-input_dist * NORM_K))
-
-                current_min = dist_min if dist_min is not None else 0
-                if new_dist_max <= current_min:
-                    new_min = new_dist_max * MIN_DIST_FACTOR
-                    rank_lines.append(f"            CombatEffectiveFireDistanceMin = {new_min:.1f}")
-
-                rank_lines.append(f"            CombatEffectiveFireDistanceMax = {new_dist_max:.1f}")
-                has_any_rank_change = True
+                    rank_lines.append(f"            CombatEffectiveFireDistanceMax = {new_dist_max:.1f}")
+                    has_any_rank_change = True
+            except Exception as e:
+                print(f"ERROR in LRC (Struct: {s}, Rank: {t}): {e}")
+                raise
 
             process_dispersion = not is_shotgun
             process_burst = not is_sniper and not is_shotgun
 
             for bracket in ["Short", "Medium", "Long"]:
-                b_data = psg.get_struct_content(t_data, bracket)
-                if not b_data: continue
+                b_node = t_node.find_child(bracket)
+                if not b_node or not isinstance(b_node, psg.cfg_ast.StructNode): continue
 
-                orig_min = psg.get_value(b_data, "MinShots") or 1
-                orig_max = psg.get_value(b_data, "MaxShots") or 1
+                orig_min = get_node_val(b_node, "MinShots") or 1
+                orig_max = get_node_val(b_node, "MaxShots") or 1
                 new_min, new_max = orig_min, orig_max
 
                 if process_burst:
@@ -270,7 +281,6 @@ def patch_npc_attributes(patcher, weapon_stats):
 
                     if bracket == "Long":
                         mult_max *= blogic.get("long_burst_mult", 1.0)
-                        # Use min_long_burst_mult if avail, else fallback to long_burst_mult
                         mult_min *= blogic.get("min_long_burst_mult", blogic.get("long_burst_mult", 1.0))
                     elif bracket == "Medium":
                         mult_max *= blogic.get("medium_burst_mult", 1.0)
@@ -288,21 +298,17 @@ def patch_npc_attributes(patcher, weapon_stats):
                     if t == "Master" and bracket == "Long":
                         limit_min_val = max(1, int(max_ammo * 0.05))
                         limit_max_val = max(1, int(max_ammo * 0.10))
-
                         limit_min = min(2, limit_min_val)
                         limit_max = min(3, limit_max_val)
-
                         new_min = min(new_min, limit_min)
                         new_max = min(new_max, limit_max)
 
-                    # Ensure Min < Max (User requirement) regardless of clamping
                     if new_min >= new_max:
                         new_max = new_min + 1
 
                     new_max = min(new_max, max_ammo)
                     new_min = min(new_min, new_max)
 
-                    # If after clamping to max_ammo, Min >= Max (meaning both hit ceiling), reduce Min
                     if new_min >= new_max and new_min > 1:
                         new_min = new_max - 1
 
@@ -341,31 +347,22 @@ def patch_npc_attributes(patcher, weapon_stats):
 
                     if is_sniper:
                         if t == "Experienced":
-                            if bracket == "Short":
-                                ignore_max = 1
-                            elif bracket == "Medium":
-                                ignore_max = 1
-                            elif bracket == "Long":
-                                ignore_max = 0  # No chance for Experienced at Long
+                            if bracket == "Short": ignore_max = 1
+                            elif bracket == "Medium": ignore_max = 1
+                            elif bracket == "Long": ignore_max = 0
                         elif t == "Veteran":
-                            if bracket == "Short":
-                                ignore_min = 1
-                                ignore_max = 1
-                            else:  # Medium and Long
-                                ignore_max = 1  # Chance to hit (might miss)
-                                ignore_min = 0
+                            if bracket == "Short": ignore_min = 1; ignore_max = 1
+                            else: ignore_max = 1; ignore_min = 0
                         elif t == "Master":
-                            ignore_max = 1  # Always a chance (might miss)
-                            if bracket in ["Short", "Medium"]:
-                                ignore_min = 1  # Guaranteed hit (1/1)
-                            else:
-                                ignore_min = 0  # Might miss (0/1)
+                            ignore_max = 1
+                            if bracket in ["Short", "Medium"]: ignore_min = 1
+                            else: ignore_min = 0
 
                     if t == "Zombie":
                         ignore_max = 1
 
                     if t == "Master" and bracket == "Long" and not is_sniper:
-                        original_ignore_max = psg.get_value(b_data, "IgnoreDispersionMaxShots") or 0
+                        original_ignore_max = get_node_val(b_node, "IgnoreDispersionMaxShots") or 0
                         if fsd < MASTER_FSD_THRESHOLD:
                             ignore_max = max(1, original_ignore_max)
                         else:
@@ -397,5 +394,7 @@ def patch_npc_attributes(patcher, weapon_stats):
             sid_patch_lines.extend(["      struct.end", "   struct.end", "struct.end"])
             patcher.add_patch(filename, "\n".join(sid_patch_lines))
             count += 1
+
+    print(f"DEBUG: Applied logic patches to {count} weapons in NPCWeaponAttributesPrototypes.cfg")
 
     print(f"DEBUG: Applied logic patches to {count} weapons in NPCWeaponAttributesPrototypes.cfg")

@@ -1,10 +1,101 @@
 import os
 import re
 import math
+import cfg_ast
 
 def round_to_nearest(val, nearest=0.5):
     """Rounds a value to the nearest increment (default 0.5)."""
     return round(val / nearest) * nearest
+
+def parse_cfg_value(val_str, preserve_case=True):
+    """Parses a CFG value string into float, int, or string."""
+    if val_str is None: return None
+    # Strip inline comments
+    s = val_str.split("//")[0].strip()
+    if not s: return val_str # If nothing left, return original
+    
+    # Handle percentages
+    if '%' in s:
+        try:
+            return float(s.replace('%', '').replace('f', '')) / 100.0
+        except ValueError:
+            pass
+            
+    # Handle floats/ints
+    try:
+        clean_val = s.lower().replace('f', '')
+        if '.' in clean_val:
+            return float(clean_val)
+        return int(clean_val)
+    except ValueError:
+        return val_str if preserve_case else val_str.lower()
+
+def get_value(content, key, preserve_case=True):
+    """Compatibility wrapper: Parses content as AST and extracts a value."""
+    # This is slightly inefficient but ensures compatibility
+    nodes = cfg_ast.parse_cfg(content)
+    # Search top-level properties and recursively nested ones
+    for node in nodes:
+        if isinstance(node, cfg_ast.PropertyNode) and node.key.lower() == key.lower():
+            val_str = node.value
+            try:
+                clean_val = val_str.lower().replace('f', '')
+                if '%' in clean_val:
+                    return float(clean_val.replace('%', '')) / 100.0
+                if '.' in clean_val:
+                    return float(clean_val)
+                return int(clean_val)
+            except ValueError:
+                return val_str if preserve_case else val_str.lower()
+        if isinstance(node, cfg_ast.StructNode):
+            prop = node.find_child(key, recursive=True)
+            if prop and isinstance(prop, cfg_ast.PropertyNode):
+                val_str = prop.value
+                try:
+                    clean_val = val_str.lower().replace('f', '')
+                    # ... (same logic as above)
+                    if '%' in clean_val:
+                        return float(clean_val.replace('%', '')) / 100.0
+                    if '.' in clean_val:
+                        return float(clean_val)
+                    return int(clean_val)
+                except ValueError:
+                    return val_str if preserve_case else val_str.lower()
+    return None
+
+def get_struct_content(file_content, struct_name):
+    """Compatibility wrapper: Extracts a struct's serialized CFG string."""
+    nodes = cfg_ast.parse_cfg(file_content)
+    for node in nodes:
+        if isinstance(node, cfg_ast.StructNode) and node.name.lower() == struct_name.lower():
+            return node.to_cfg()
+        if isinstance(node, cfg_ast.StructNode):
+            child = node.find_child(struct_name, recursive=True)
+            if child and isinstance(child, cfg_ast.StructNode):
+                return child.to_cfg()
+    return None
+
+def has_nested_node(file_content, struct_name, node_path):
+    """Compatibility wrapper: Checks for nested path in a struct's content."""
+    content = get_struct_content(file_content, struct_name)
+    if not content: return False
+    
+    # We can use the logic from our node hierarchy
+    nodes = cfg_ast.parse_cfg(content)
+    if not nodes: return False
+    root = nodes[0] if isinstance(nodes[0], cfg_ast.StructNode) else None
+    if not root: return False
+    
+    curr = root
+    for node_name in node_path:
+        found = False
+        for child in curr.children:
+            if isinstance(child, cfg_ast.StructNode) and child.name.lower() == node_name.lower():
+                curr = child
+                found = True
+                break
+        if not found: return False
+    return True
 
 def is_special_npc(name):
     """Checks if an NPC/SID should be excluded based on common special names."""
@@ -41,14 +132,16 @@ def get_inheritance_tree(file_path):
     """Builds a child -> parent mapping from a .cfg file."""
     tree = {}
     # Matches struct name and captures the refkey value if present within braces
-    pattern = re.compile(r'^\s*(\w+)\s*:\s*struct\.begin(?:\s*\{.*refkey\s*=\s*(\w+).*\})?', re.MULTILINE | re.IGNORECASE)
+    # Uses a more robust pattern to find refkey regardless of other attributes like refurl
+    pattern = re.compile(r'^\s*(\w+)\s*:\s*struct\.begin(?:\s*\{[^{}]*?refkey\s*=\s*(\w+)[^{}]*\})?', re.MULTILINE | re.IGNORECASE)
     
     with open(file_path, 'r', encoding='utf-8-sig') as f:
         content = f.read()
         for match in pattern.finditer(content):
             struct_name = match.group(1)
             parent_name = match.group(2)
-            tree[struct_name] = parent_name
+            if parent_name:
+                tree[struct_name] = parent_name
     return tree
 
 def find_all_inheritors(tree, base_struct):
@@ -168,37 +261,34 @@ def find_node_path(struct_content, target_key, target_parent=None):
     # Return the first matching path
     return found_paths[0]
 
-def generate_bpatch(struct_name, nested_path=None, values=None, direct_properties=None, root_properties=None):
+def generate_bpatch(struct_name, nested_path=None, values=None, direct_properties=None, root_properties=None, bpatch_until=None):
     """
-    Generates a {bpatch} block.
-    If nested_path is provided, direct_properties and values apply at the end of that path.
-    root_properties always apply at the first level of the struct.
+    Generates a {bpatch} block string.
+    bpatch_until: Number of levels (including root) that should have {bpatch}.
     """
-    lines = [f"{struct_name} : struct.begin {{bpatch}}"]
+    total_levels = 1 + (len(nested_path) if nested_path else 0)
+    limit = bpatch_until if bpatch_until is not None else total_levels
     
-    # Add root properties first
+    root_bpatch = " {bpatch}" if limit >= 1 else ""
+    lines = [f"{struct_name} : struct.begin{root_bpatch}"]
+    
     if root_properties:
         for k, v in root_properties.items():
             lines.append(f"   {k} = {v}")
 
     indent = "   "
-    
-    # Traverse nested path
     if nested_path:
-        for node in nested_path:
-            # Check if node already has {bpatch} or struct.begin in it, otherwise add it
-            if "struct.begin" not in node:
-                lines.append(f"{indent}{node} : struct.begin {{bpatch}}")
-            else:
-                lines.append(f"{indent}{node}")
+        for i, node in enumerate(nested_path):
+            # level index is i+2 (root is 1, first nested is 2)
+            level = i + 2
+            bpatch_str = " {bpatch}" if level <= limit else ""
+            lines.append(f"{indent}{node} : struct.begin{bpatch_str}")
             indent += "   "
 
-    # Add properties at current (possibly nested) indentation
     if direct_properties:
         for k, v in direct_properties.items():
             lines.append(f"{indent}{k} = {v}")
 
-    # Add array elements at current indentation
     if values:
         for val in values:
             if val.strip().startswith("[*]"):
@@ -206,7 +296,6 @@ def generate_bpatch(struct_name, nested_path=None, values=None, direct_propertie
             else:
                 lines.append(f"{indent}[*] = {val}")
     
-    # Close nested blocks
     if nested_path:
         for i in range(len(nested_path), 0, -1):
             close_indent = "   " * i
@@ -220,13 +309,13 @@ class ModPatcher:
         self.source_dump = source_dump_dir
         self.mod_root = mod_output_dir
         self.global_tree = {}
-        self.file_contents = {}
+        self.file_asts = {} # filename -> list of Nodes
         self.struct_to_file = {}
         self.filename_to_rel_path = {}
         self.patches = {} # filename -> list of patch strings
 
     def load_files(self, relative_paths):
-        """Loads files, builds inheritance tree, and maps structs."""
+        """Loads files as ASTs, builds inheritance tree, and maps structs."""
         for rel_path in relative_paths:
             abs_path = os.path.join(self.source_dump, rel_path)
             if not os.path.exists(abs_path):
@@ -234,15 +323,49 @@ class ModPatcher:
                 continue
             
             filename = os.path.basename(rel_path)
-            tree = get_inheritance_tree(abs_path)
-            self.global_tree.update(tree)
+            self.global_tree.update(get_inheritance_tree(abs_path))
             
             with open(abs_path, 'r', encoding='utf-8-sig') as f:
                 content = f.read()
-                self.file_contents[filename] = content
+                self.file_asts[filename] = cfg_ast.parse_cfg(content)
                 self.filename_to_rel_path[filename] = rel_path
-                for struct_name in tree.keys():
-                    self.struct_to_file[struct_name] = (filename, rel_path)
+                for node in self.file_asts[filename]:
+                    if isinstance(node, cfg_ast.StructNode):
+                        self.struct_to_file[node.name] = (filename, rel_path)
+
+    def get_struct(self, struct_name, filename_hint=None):
+        """Finds a struct node by name. Uses filename_hint for faster lookup if provided."""
+        if filename_hint and filename_hint in self.file_asts:
+            for node in self.file_asts[filename_hint]:
+                if isinstance(node, cfg_ast.StructNode) and node.name.lower() == struct_name.lower():
+                    return node
+        
+        # Global search
+        for f in self.file_asts.keys():
+            if f == filename_hint: continue
+            for node in self.file_asts[f]:
+                if isinstance(node, cfg_ast.StructNode) and node.name.lower() == struct_name.lower():
+                    return node
+        return None
+
+    def get_property_value(self, struct_name, key, filename_hint=None):
+        """Finds a property value in a struct, searching inheritance tree globaly."""
+        curr = struct_name
+        visited = set()
+        while curr and curr not in visited:
+            visited.add(curr)
+            # Search globally for the struct
+            node = self.get_struct(curr, filename_hint if curr == struct_name else None)
+            if node:
+                # Find child recursively handles nested properties
+                prop = node.find_child(key, recursive=True)
+                if prop and isinstance(prop, cfg_ast.PropertyNode):
+                    return parse_cfg_value(prop.value)
+            
+            parent_name = self.global_tree.get(curr)
+            if not parent_name: break
+            curr = parent_name
+        return None
 
     def get_all_inheritors(self, base_struct):
         inheritors = find_all_inheritors(self.global_tree, base_struct)
@@ -254,28 +377,72 @@ class ModPatcher:
             self.patches[filename] = []
         self.patches[filename].append(patch_text)
 
+    def has_property_path(self, struct_name, path, filename=None):
+        """Checks if a struct contains a specific nested path."""
+        root = self.get_struct(struct_name, filename)
+        if not root: return False
+        
+        curr = root
+        for node_name in path:
+            found = False
+            for child in curr.children:
+                if isinstance(child, cfg_ast.StructNode) and child.name.lower() == node_name.lower():
+                    curr = child
+                    found = True
+                    break
+            if not found: return False
+        return True
+
     def smart_add_patch(self, filename, struct_name, key, value, parent_node=None):
         """
         Automatically finds the path to the key within the struct and generates a {bpatch}.
         """
-        content = self.file_contents.get(filename)
-        if not content:
+        root_struct = self.get_struct(struct_name, filename)
+        if not root_struct:
             return False
             
-        struct_content = get_struct_content(content, struct_name)
-        if not struct_content:
+        # Recursive search for the key, optionally under a specific parent
+        def find_path(node, target_key, target_parent=None, current_path=None):
+            if current_path is None: current_path = []
+            
+            # Check properties in this node
+            for child in node.children:
+                if isinstance(child, cfg_ast.PropertyNode) and child.key.lower() == target_key.lower():
+                    if target_parent:
+                        if any(p.lower() == target_parent.lower() for p in current_path):
+                            return current_path
+                    else:
+                        return current_path
+                
+                if isinstance(child, cfg_ast.StructNode):
+                    res = find_path(child, target_key, target_parent, current_path + [child.name])
+                    if res is not None:
+                        return res
+            return None
+
+        path = find_path(root_struct, key, parent_node)
+        if path is None:
+            # If not found directly, check inheritance tree for the key's location
+            curr = struct_name
+            visited = set()
+            while curr and curr not in visited:
+                visited.add(curr)
+                parent_name = self.global_tree.get(curr)
+                if not parent_name: break
+                parent_struct = self.get_struct(parent_name)
+                if parent_struct:
+                    path = find_path(parent_struct, key, parent_node)
+                    if path is not None:
+                        break
+                curr = parent_name
+
+        if path is None:
             return False
-            
-        path = find_node_path(struct_content, key, parent_node)
-        if not path:
-            return False
-            
-        # The first entry in path is the struct_name itself, we need the nested part
-        nested_path = []
-        if len(path) > 1:
-            nested_path = path[1:]
-            
-        patch_text = generate_bpatch(struct_name, nested_path=nested_path, direct_properties={key: value})
+
+        # Generate the patch using the discovered path
+        # Note: we use our existing generate_bpatch for simplicity, 
+        # but it could also be done via AST nodes if we wanted to be 100% AST.
+        patch_text = generate_bpatch(struct_name, nested_path=path, direct_properties={key: value})
         self.add_patch(filename, patch_text)
         return True
 
@@ -286,8 +453,6 @@ class ModPatcher:
 
         for filename, patches in self.patches.items():
             base_name = os.path.splitext(filename)[0]
-            
-            # Use the stored relative path for the filename
             rel_path = self.filename_to_rel_path.get(filename, "")
             rel_dir = os.path.dirname(rel_path) if rel_path else ""
             

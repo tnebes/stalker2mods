@@ -17,37 +17,13 @@ def run():
     patcher.load_files([weapon_rel_path])
     
     filename = os.path.basename(weapon_rel_path)
-    content = patcher.file_contents[filename]
     
     # Identify all weapons inheriting from TemplateShotgun
     inheritors = patcher.get_all_inheritors('TemplateShotgun')
     
     for s in inheritors:
         # Get the effective RecoilRadius for this struct
-        struct_content = psg.get_struct_content(content, s)
-        if not struct_content:
-            continue
-            
-        # We need to find RecoilRadius. It's normally inside RecoilParams.
-        # psg.get_value will find it anywhere in the struct content.
-        recoil_val = psg.get_value(struct_content, 'RecoilRadius')
-        
-        # If not found in this specific struct definition, look up the inheritance tree
-        if recoil_val is None:
-            curr = s
-            visited = set()
-            while curr and curr not in visited:
-                visited.add(curr)
-                parent_name = patcher.global_tree.get(curr)
-                if not parent_name:
-                    break
-                
-                parent_content = psg.get_struct_content(content, parent_name)
-                if parent_content:
-                    recoil_val = psg.get_value(parent_content, 'RecoilRadius')
-                    if recoil_val is not None:
-                        break
-                curr = parent_name
+        recoil_val = patcher.get_property_value(s, 'RecoilRadius', filename)
         
         # If we found a numeric recoil value, reduce it by 50%
         if recoil_val is not None and isinstance(recoil_val, (int, float)) and recoil_val > 0:

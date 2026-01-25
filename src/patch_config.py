@@ -17,5 +17,6 @@ LRC_FILES = [
     'Content/GameLite/GameData/WeaponData/CharacterWeaponSettingsPrototypes.cfg',
     'Content/GameLite/GameData/AIPrototypes/VisionScannerPrototypes.cfg',
     'Content/GameLite/GameData/WeaponData/WeaponAttributesPrototypes/NPCWeaponAttributesPrototypes.cfg',
+    'Content/GameLite/GameData/WeaponData/WeaponAttributesPrototypes/PlayerWeaponAttributesPrototypes.cfg',
     'Content/GameLite/GameData/WeaponData/WeaponGeneralSetupPrototypes.cfg'
 ]

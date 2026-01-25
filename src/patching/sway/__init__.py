@@ -11,39 +11,33 @@ def patch_weapons(patcher):
     weapon_rel_path = 'Content/GameLite/GameData/WeaponData/WeaponGeneralSetupPrototypes.cfg'
     patcher.load_files([weapon_rel_path])
     
-    weapon_file = os.path.basename(weapon_rel_path)
+    filename = os.path.basename(weapon_rel_path)
     inheritors = patcher.get_all_inheritors('TemplateWeapon')
     
     for s in inheritors:
-        # Check if node exists in chain
-        if psg.has_nested_node(patcher.file_contents[weapon_file], s, WEAPON_NESTED_PATH):
-            patch = psg.generate_bpatch(s, WEAPON_NESTED_PATH, EFFECTS)
-            patcher.add_patch(weapon_file, patch)
-        else:
-            # Check parent content for nested node recursively
-            current = s
-            found = False
-            visited = set()
-            while current and current not in visited:
-                visited.add(current)
-                data = psg.get_struct_content(patcher.file_contents[weapon_file], current)
-                if data and psg.has_nested_node(data, current, WEAPON_NESTED_PATH):
-                    found = True
-                    break
-                current = patcher.global_tree.get(current)
+        # Check if path exists in struct or its inheritance chain
+        curr = s
+        found = False
+        visited = set()
+        while curr and curr not in visited:
+            visited.add(curr)
+            if patcher.has_property_path(curr, WEAPON_NESTED_PATH, filename):
+                found = True
+                break
+            curr = patcher.global_tree.get(curr)
             
-            if found:
-                patch = psg.generate_bpatch(s, WEAPON_NESTED_PATH, EFFECTS)
-                patcher.add_patch(weapon_file, patch)
+        if found:
+            patch = psg.generate_bpatch(s, WEAPON_NESTED_PATH, EFFECTS)
+            patcher.add_patch(weapon_file if 'weapon_file' in locals() else filename, patch)
 
 def patch_attachments(patcher):
     attach_file = 'Content/GameLite/GameData/ItemPrototypes/AttachPrototypes.cfg'
     patcher.load_files([attach_file])
     
     filename = os.path.basename(attach_file)
-    content = patcher.file_contents[filename]
     
-    structs = re.findall(r'^\s*(\w+)\s*:\s*struct\.begin', content, re.MULTILINE)
+    # We can get all structs from the AST now
+    structs = [node.name for node in patcher.file_asts[filename] if isinstance(node, psg.cfg_ast.StructNode)]
     
     for s in structs:
         # Check properties in chain
@@ -53,11 +47,11 @@ def patch_attachments(patcher):
         visited = set()
         while current and current not in visited:
             visited.add(current)
-            data = psg.get_struct_content(content, current)
-            if data:
-                if not has_breath and "CanHoldBreath" in data:
+            node = patcher.get_struct(current, filename)
+            if node:
+                if not has_breath and node.find_child("CanHoldBreath"):
                     has_breath = True
-                if not has_scope and psg.has_nested_node(data, current, ATTACH_NESTED_PATH):
+                if not has_scope and patcher.has_property_path(current, ATTACH_NESTED_PATH, filename):
                     has_scope = True
             current = patcher.global_tree.get(current)
             

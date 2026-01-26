@@ -2,8 +2,8 @@ import os
 import re
 import sys
 
-# Add src to path to import local modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Add current package directory (v1) to path to import local modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import patching_script_general as psg
 from patch_config import SOURCE_DUMP, get_mod_root
 

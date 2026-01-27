@@ -35,9 +35,14 @@ class Value:
         if self.is_percent:
             self.raw = f"{int(new_val * 100)}%"
         elif 'f' in self.raw.lower():
-            self.raw = f"{new_val:.1f}f"
+            # Try to preserve decimal precision if original had it, otherwise use .1f
+            self.raw = f"{new_val:g}f"
+            if '.' not in self.raw:
+                self.raw = self.raw.replace('f', '.0f')
         elif '.' in self.raw:
-            self.raw = f"{new_val:.1f}"
+            self.raw = f"{new_val:g}"
+            if '.' not in self.raw:
+                self.raw += ".0"
         else:
             self.raw = str(int(new_val))
         return self

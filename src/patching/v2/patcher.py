@@ -98,12 +98,15 @@ class Patcher:
         patch_doc.original_rel_path = rel_path
         return patch_doc
 
-    def save_patch(self, mod_root, mod_name, rel_path=None, patch_doc=None, is_prototype=True):
+    def save_patch(self, mod_root, mod_name, rel_path=None, patch_doc=None, is_prototype=None, flatten=False):
         """
         Saves a patch document following the hierarchy rules in GUIDE.md.
         
         mod_root: Base path for the mod (e.g., 'C:\\dev\\stalker2\\mods\\mods\\SunnierZone\\SunnierZone_P')
         rel_path: Optional. If not provided, it tries to get it from patch_doc.
+        is_prototype: If None (default), auto-detects based on filename. 
+                      True if it ends with 'Prototype' or 'Prototypes'.
+        flatten: If True, do not create a subfolder for prototype patches.
         """
         if rel_path is None:
             if hasattr(patch_doc, "original_rel_path") and patch_doc.original_rel_path:
@@ -132,9 +135,17 @@ class Patcher:
         filename = os.path.basename(internal_rel_path)
         base_name = os.path.splitext(filename)[0]
         
+        # Auto-detect prototype status if not explicitly provided
+        if is_prototype is None:
+            is_prototype = any(base_name.endswith(suffix) for suffix in ["Prototype", "Prototypes"])
+
         if is_prototype:
-            # Prototype CFGs go in a sub-folder named after the file
-            target_dir = os.path.join(base_dir, rel_dir, base_name)
+            if flatten:
+                # Prototype but flattened (stays in rel_dir)
+                target_dir = os.path.join(base_dir, rel_dir)
+            else:
+                # Prototype CFGs go in a sub-folder named after the file
+                target_dir = os.path.join(base_dir, rel_dir, base_name)
             target_file = f"{base_name}_patch_{mod_name}.cfg"
         else:
             # Standard CFGs go in the same directory

@@ -31,14 +31,39 @@ def diff_nodes(base_node, modified_node):
 
     if isinstance(modified_node, StructNode):
         diff_children = []
-        for m_child in modified_node.children:
-            if not isinstance(m_child, (StructNode, PropertyNode, ArrayNode)):
-                # Keep comments or other nodes if they exist? Maybe not for diff.
-                continue
+        
+        # We need to handle duplicate child names (like [*]) correctly.
+        # Simple name-based matching fails here.
+        m_children = [c for c in modified_node.children if isinstance(c, (StructNode, PropertyNode, ArrayNode))]
+        b_children = [c for c in base_node.children if isinstance(c, (StructNode, PropertyNode, ArrayNode))]
+
+        # Map base children by name to detect duplicates
+        from collections import Counter
+        b_name_counts = Counter(getattr(c, 'name', getattr(c, 'key', None)) for c in b_children)
+        
+        # Track our current index for each name to match duplicates sequentially
+        name_match_index = {}
+
+        for m_child in m_children:
+            name = getattr(m_child, 'name', getattr(m_child, 'key', None))
             
-            # Find matching child in base
-            b_child = base_node.find_child(getattr(m_child, 'name', getattr(m_child, 'key', None)))
+            # If this name appears multiple times in base, or it's a known anonymous key
+            is_ambiguous = b_name_counts[name] > 1 or name == "[*]"
             
+            b_child = None
+            if is_ambiguous:
+                # Find the N-th occurrence of this name
+                start_idx = name_match_index.get(name, 0)
+                for i in range(start_idx, len(b_children)):
+                    curr_b = b_children[i]
+                    if getattr(curr_b, 'name', getattr(curr_b, 'key', None)) == name:
+                        b_child = curr_b
+                        name_match_index[name] = i + 1
+                        break
+            else:
+                # Unique name, use standard lookup
+                b_child = base_node.find_child(name)
+
             if not b_child:
                 # New node
                 diff_children.append(m_child)
@@ -162,3 +187,21 @@ class Patcher:
             f.write(patch_doc.to_cfg())
         
         return abs_target_path
+
+    def inject_guardian(self, mod_root, mod_name, jump_stamina="100"):
+        """
+        Injects a 'Guardian' patch (blatant changes for testing) to confirm the mod is loading.
+        Sets SprintSpeed and JumpSpeedCoef for the 'Player' SID in ObjPrototypes.cfg.
+        """
+        print(f"Injecting Guardian into ObjPrototypes (Player SID) for {mod_name}...")
+        config_path = "ObjPrototypes.cfg"
+        cfg = load_configuration(config_path, base_dump_path=self.base_path)
+        player = cfg.getNodeByName("Player")
+        if player:
+            player['StaminaPerAction']['Jump'] = jump_stamina
+            
+            patch = self.generate_patch(config_path, cfg.doc)
+            return self.save_patch(mod_root, mod_name, patch_doc=patch, is_prototype=True)
+        else:
+            print("WARNING: Player node not found for Guardian injection.")
+            return None

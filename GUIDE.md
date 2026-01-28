@@ -21,7 +21,70 @@ LogPakFile: Display: Mounted Pak file '../../../Stalker2/Content/Paks/~mods/Sava
 A "Guardian CFG" is a simple, highly visible modification (like doubling jump height or sprint speed) that you include in every test build.
 
 - **Purpose**: Immediate visual confirmation that the game is actually reading your modded values.
-- **Example**: Set `SprintSpeed = 1000` in `GeneralNPCObjPrototypes.cfg`. Once you confirm the mod is loaded, you can safely debug the more subtle logic changes.
+- **Example**: Set `Jump = 100` for `StaminaPerAction` in `GeneralNPCObjPrototypes.cfg`. Once you confirm the mod is loaded, you can safely debug the more subtle logic changes.
+
+## 0.2 Scripting with Lua (UE4SS)
+
+For more advanced verification and automation (like printing loaded configs or manipulating game state), you can use Lua scripts via UE4SS.
+
+### Folder Structure
+
+Lua mods are placed in the `Binaries/Win64/ue4ss/Mods/` directory. Each mod must have:
+
+- A folder named after the mod (e.g., `ConfigPrinter`).
+- A `Scripts` subfolder containing `main.lua`.
+
+```text
+Stalker2/Binaries/Win64/ue4ss/Mods/
+└── ConfigPrinter/
+    └── Scripts/
+        └── main.lua
+```
+
+### Enabling the Mod
+
+Edit `Stalker2/Binaries/Win64/ue4ss/Mods/mods.txt` and add your mod name:
+
+```text
+ConfigPrinter : 1
+```
+
+### Common Lua Snippets for Stalker 2
+
+#### Finding Singletons/Subsystems
+
+Many game systems are accessible via subsystems.
+
+```lua
+local ConfigSS = FindFirstOf("GSCConfigSubsystem")
+if ConfigSS and ConfigSS:IsValid() then
+    -- Access InternalConfigNodes, etc.
+end
+```
+
+#### Registering Keybinds
+
+```lua
+RegisterKeyBind(Key.F11, function()
+    print("F11 Pressed!\n")
+end)
+```
+
+#### Iterating Unreal Arrays (TArray)
+
+UE4SS wraps Unreal arrays with a `ForEach` method.
+
+```lua
+local Level = FindFirstOf("Level")
+Level.Actors:ForEach(function(Index, ActorWrapper)
+    local Actor = ActorWrapper:get()
+    print(Actor:GetFullName() .. "\n")
+end)
+```
+
+#### Damping Configs (Advanced)
+
+The `GSCConfigSubsystem` holds a map of all loaded `.cfg` files in `InternalConfigNodes`. You can iterate this map to see exactly what the engine has parsed, which is the ultimate "Source of Truth" for your patches.
 
 ## 1. Naming Conventions & Files
 

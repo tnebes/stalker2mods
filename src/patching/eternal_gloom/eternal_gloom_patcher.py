@@ -14,10 +14,6 @@ MOD_ROOT = r"C:\dev\stalker2\mods\mods\EternalGloom\EternalGloom_P"
 MOD_NAME = "EternalGloom"
 WEATHER_SELECTION_PATH = "WeatherSelectionPrototypes.cfg"
 WEATHER_PROTOTYPES_DIR = "WeatherPrototypes"
-OBJ_PROTOTYPES_PATH = "ObjPrototypes.cfg"
-
-# --- GUARDIAN VALUES ---
-GUARDIAN_SPRINT_SPEED = "3000.0f"
 
 is_extreme = "extreme" in sys.argv
 is_debug = "debug" in sys.argv
@@ -25,30 +21,57 @@ is_debug = "debug" in sys.argv
 print(f"--- Initializing Eternal Gloom Patcher ---")
 p = Patcher()
 
-# 1. GUARDIAN: ObjPrototypes.cfg (Prototype)
-print("Injecting Guardian into ObjPrototypes (Player SID)...")
-obj_cfg = load_configuration(OBJ_PROTOTYPES_PATH)
-player = obj_cfg.getNodeByName("Player")
-if player:
-    player['MovementParams']['SprintSpeed'] = GUARDIAN_SPRINT_SPEED
-    obj_patch = p.generate_patch(OBJ_PROTOTYPES_PATH, obj_cfg.doc)
-    p.save_patch(MOD_ROOT, MOD_NAME, patch_doc=obj_patch, is_prototype=True)
+# 1. GUARDIAN Protocol
+p.inject_guardian(MOD_ROOT, MOD_NAME)
 
-# 2. SELECTION: Eternal Blowout
-print("Patching Weather Selection...")
-sel_cfg = load_configuration(WEATHER_SELECTION_PATH)
-for node in sel_cfg.doc.nodes:
-    if isinstance(node, StructNode):
-        region = NodeWrapper(node)
-        for weather in region:
-            name = weather.key_or_name
-            if name == "Clearly":
-                weather['BlendWeight'] = "0.0f"
-            elif name == "Emission":
-                weather['BlendWeight'] = "1000.0f"
+# Atmosphere settings
+GLOOMY_TYPES = ["Fogy", "Stormy", "Rainy", "Thundery"]
+HAPPY_TYPES = ["Clearly"]
 
-sel_patch = p.generate_patch(WEATHER_SELECTION_PATH, sel_cfg.doc)
-p.save_patch(MOD_ROOT, MOD_NAME, patch_doc=sel_patch, is_prototype=True, flatten=True)
+# 2. SELECTION: Gloom Atmosphere
+if not is_debug:
+    print("Patching Weather Selection for Gloom atmosphere (Calculated)...")
+    sel_cfg = load_configuration(WEATHER_SELECTION_PATH)
+    for node in sel_cfg.doc.nodes:
+        if isinstance(node, StructNode):
+            region = NodeWrapper(node)
+            for weather in region:
+                name = weather.key_or_name
+                if not name: continue
+                
+                # Extinguish the sun
+                if name in HAPPY_TYPES:
+                    weather['BlendWeight'] = "0.0f"
+                    if 'WeatherDurationMin' in weather: weather['WeatherDurationMin'] = "5.0f"
+                    if 'WeatherDurationMax' in weather: weather['WeatherDurationMax'] = "15.0f"
+
+                # Amplify the darkness
+                elif name in GLOOMY_TYPES:
+                    # Increase probability
+                    if 'BlendWeight' in weather:
+                        current_weight = weather['BlendWeight'].to_float()
+                        if current_weight == 0:
+                            weather['BlendWeight'] = "50.0f"
+                        else:
+                            weather['BlendWeight'].scale(4.0)
+                    
+                    # Make it linger
+                    if 'WeatherDurationMin' in weather: weather['WeatherDurationMin'].scale(3.0)
+                    if 'WeatherDurationMax' in weather: weather['WeatherDurationMax'].scale(3.0)
+                    
+                    # Allow it to repeat indefinitely
+                    if 'MaximumRepeatAmount' in weather: weather['MaximumRepeatAmount'] = "-1"
+
+                # Frequent Blowouts
+                elif name == "Emission":
+                    if 'MaximumCooldownWeatherAmount' in weather:
+                        # Halve the cooldown between emissions
+                        weather['MaximumCooldownWeatherAmount'].scale(0.4)
+
+    sel_patch = p.generate_patch(WEATHER_SELECTION_PATH, sel_cfg.doc)
+    p.save_patch(MOD_ROOT, MOD_NAME, patch_doc=sel_patch, is_prototype=True)
+else:
+    print("Debug mode: Skipping Weather Selection patch.")
 
 # 3. VISUALS: Prototype Scheme (Subfolders + _patch_)
 if is_extreme or is_debug:
@@ -68,7 +91,16 @@ if is_extreme or is_debug:
             if 'WeatherParams' in root:
                 for params in root['WeatherParams']:
                     modified = True
+                    
+                    if is_extreme:
+                        # Extreme mode: significantly lower intensity
+                        if 'SkyLight' in params:
+                            params['SkyLight']['Intensity'] = "0.05f"
+                        if 'ColorGrading' in params:
+                            params['ColorGrading']['ColorSaturation']['W'] = "0.2f"
+                    
                     if is_debug:
+                        # Debug mode: Neon effects for verification
                         if 'ColorGrading' in params:
                             params['ColorGrading']['ColorSaturation']['W'] = "0.0f"
                         if 'SkyLight' in params:
@@ -79,6 +111,6 @@ if is_extreme or is_debug:
 
         if modified:
             v_patch = p.generate_patch(v_path, v_cfg.doc)
-            p.save_patch(MOD_ROOT, MOD_NAME, patch_doc=v_patch, is_prototype=True, flatten=True)
+            p.save_patch(MOD_ROOT, MOD_NAME, patch_doc=v_patch, is_prototype=True)
 
 print(f"\nAll tasks complete. Guardian is in ObjPrototypes/Player.")

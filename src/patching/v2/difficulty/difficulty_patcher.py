@@ -2,11 +2,11 @@ import os
 import sys
 
 # Add project root to sys.path for absolute imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")))
 
 from src.patching.v2.api import load_configuration
 from src.patching.v2.patcher import Patcher
-from src.difficulty.difficulty_values import DIFFICULTY_VALUES
+from src.patching.v2.difficulty.difficulty_values import DIFFICULTY_VALUES
 
 # Mapping indices to SID names in DifficultyPrototypes.cfg
 DIFFICULTIES = ["Easy", "Medium", "Hard", "Stalker"]

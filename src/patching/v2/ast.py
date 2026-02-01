@@ -1,17 +1,33 @@
 import re
 
 class Value:
-    """Represents a value in a CFG file, preserving its original string representation if needed."""
-    def __init__(self, raw_value):
-        self.raw = str(raw_value)
+    """Represents a value in a CFG file, preserving its original string representation and format."""
+    def __init__(self, raw_value, format_hint=None):
+        if isinstance(raw_value, Value):
+            self.raw = raw_value.raw
+            self.format_hint = format_hint or raw_value.format_hint
+        else:
+            self.raw = str(raw_value)
+            self.format_hint = format_hint or self._detect_format()
     
+    def _detect_format(self):
+        low = self.raw.lower()
+        if '%' in low: return 'percent'
+        if 'f' in low: return 'float_f'
+        if '.' in low: return 'float'
+        try:
+            int(self.raw)
+            return 'int'
+        except ValueError:
+            return 'string'
+
     @property
     def is_float(self):
-        return 'f' in self.raw.lower() or '.' in self.raw
+        return self.format_hint in ['float', 'float_f']
 
     @property
     def is_percent(self):
-        return '%' in self.raw
+        return self.format_hint == 'percent'
 
     def to_float(self):
         clean = self.raw.lower().replace('f', '').replace('%', '')
@@ -31,27 +47,30 @@ class Value:
         
         new_val = val * factor
         
-        # Format back to string
-        if self.is_percent:
+        # Format back to string and update raw based on hint
+        if self.format_hint == 'percent':
             self.raw = f"{int(new_val * 100)}%"
-        elif 'f' in self.raw.lower():
-            # Try to preserve decimal precision if original had it, otherwise use .1f
+        elif self.format_hint == 'float_f':
             self.raw = f"{new_val:g}f"
             if '.' not in self.raw:
                 self.raw = self.raw.replace('f', '.0f')
-        elif '.' in self.raw:
+        elif self.format_hint == 'float':
             self.raw = f"{new_val:g}"
             if '.' not in self.raw:
                 self.raw += ".0"
-        else:
+        elif self.format_hint == 'int':
             self.raw = str(int(new_val))
+        else:
+            # Fallback for dynamic strings that might have been changed
+            self.raw = str(new_val)
+            
         return self
 
     def __str__(self):
         return self.raw
 
     def __repr__(self):
-        return f"Value({self.raw!r})"
+        return f"Value({self.raw!r}, hint={self.format_hint!r})"
 
 class Node:
     def __init__(self):
@@ -89,7 +108,7 @@ class StructNode(Node):
         super().__init__()
         self.name = name
         self.attributes = attributes or "" # e.g. "{bpatch}"
-        self.children = children or []
+        self.children = children if children is not None else []
         for child in self.children:
             child.parent = self
 
@@ -144,6 +163,23 @@ class StructNode(Node):
     def key_or_name(self):
         return self.name
 
+    def get_attribute(self, attr_name):
+        """Parses attributes like {refkey=[0]; other=val} and returns requested one."""
+        if not self.attributes:
+            return None
+        # Basic parsing for {key=val; key2=val2}
+        content = self.attributes.strip('{}')
+        parts = [p.strip() for p in content.split(';')]
+        for part in parts:
+            if '=' in part:
+                k, v = part.split('=', 1)
+                if k.strip().lower() == attr_name.lower():
+                    return v.strip()
+        return None
+
+    def get_parent_sid(self):
+        return self.get_attribute('refkey')
+
     def to_cfg(self, indent=0):
         lines = []
         attr_str = f" {self.attributes}" if self.attributes else ""
@@ -178,7 +214,7 @@ class ArrayNode(Node):
     def __init__(self, key, elements=None):
         super().__init__()
         self.key = key
-        self.elements = elements or [] # List of ArrayElementNode
+        self.elements = elements if elements is not None else [] # List of ArrayElementNode
         for el in self.elements:
             el.parent = self
 
@@ -201,7 +237,7 @@ class ArrayElementNode(Node):
 
 class CFGDocument:
     def __init__(self, nodes=None, original_rel_path=None):
-        self.nodes = nodes or []
+        self.nodes = nodes if nodes is not None else []
         self.original_rel_path = original_rel_path
         for node in self.nodes:
             node.parent = self

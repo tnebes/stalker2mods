@@ -68,8 +68,7 @@ if not is_debug:
                         # Halve the cooldown between emissions
                         weather['MaximumCooldownWeatherAmount'].scale(0.4)
 
-    sel_patch = p.generate_patch(WEATHER_SELECTION_PATH, sel_cfg.doc)
-    p.save_patch(MOD_ROOT, MOD_NAME, patch_doc=sel_patch, is_prototype=True)
+    p.save_override(MOD_ROOT, WEATHER_SELECTION_PATH, sel_cfg.doc)
 else:
     print("Debug mode: Skipping Weather Selection patch.")
 
@@ -110,7 +109,6 @@ if is_extreme or is_debug:
                         }, attributes=BPATCH)
 
         if modified:
-            v_patch = p.generate_patch(v_path, v_cfg.doc)
-            p.save_patch(MOD_ROOT, MOD_NAME, patch_doc=v_patch, is_prototype=True)
+            p.save_override(MOD_ROOT, v_path, v_cfg.doc)
 
 print(f"\nAll tasks complete. Guardian is in ObjPrototypes/Player.")

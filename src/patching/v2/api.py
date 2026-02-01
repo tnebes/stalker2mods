@@ -7,7 +7,7 @@ DEFAULT_DUMP_DIR = r"C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\Ga
 class NodeFactory:
     """Helper to create nodes easily."""
     @staticmethod
-    def create(name, content, attributes=""):
+    def create(name, content, attributes="", format_hint=None):
         if isinstance(content, list):
             # Assume it's an array if content is a list of tuples or values
             elements = []
@@ -24,11 +24,11 @@ class NodeFactory:
                 if isinstance(v, (StructNode, PropertyNode, ArrayNode)):
                     children.append(v)
                 else:
-                    children.append(PropertyNode(k, v))
+                    children.append(PropertyNode(k, Value(v, format_hint)))
             return StructNode(name, attributes, children)
         else:
             # Property
-            return PropertyNode(name, content)
+            return PropertyNode(name, Value(content, format_hint))
 
 def load_configuration(path, base_dump_path=DEFAULT_DUMP_DIR):
     """
@@ -76,18 +76,19 @@ class CFGWrapper:
     def getNodeByName(self, name):
         node = self.doc.get_struct(name)
         if node:
-            return NodeWrapper(node)
+            return NodeWrapper(node, self.doc)
         return None
 
     def to_cfg(self):
         return self.doc.to_cfg()
 
 class NodeWrapper:
-    def __init__(self, nodes):
+    def __init__(self, nodes, doc=None):
         if not isinstance(nodes, list):
             self.nodes = [nodes]
         else:
             self.nodes = nodes
+        self.doc = doc
 
     @property
     def node(self):
@@ -102,11 +103,37 @@ class NodeWrapper:
             return n.value.to_float()
         return None
 
+    def get_effective_node(self, key, resolve_doc=None):
+        """
+        Attempts to find a child node by key. 
+        If not found in the current struct, follows 'refkey' inheritance.
+        resolve_doc: Optional CFGDocument to use for inheritance resolution.
+                     Highly recommended when scaling values to avoid cascading.
+        """
+        n = self.nodes[0]
+        if not isinstance(n, StructNode):
+            return None
+        
+        # 1. Try local
+        if key in n:
+            res = n[key]
+            return NodeWrapper(res, self.doc)
+        
+        # 2. Try inherited
+        parent_sid = n.get_parent_sid()
+        doc_to_use = resolve_doc or self.doc
+        if parent_sid and doc_to_use:
+            parent_struct = doc_to_use.get_struct(parent_sid)
+            if parent_struct:
+                return NodeWrapper(parent_struct, doc_to_use).get_effective_node(key, resolve_doc=doc_to_use)
+        
+        return None
+
     def __getitem__(self, key):
         # Delegate to the first node in the list for simplicity in most cases
         res = self.nodes[0][key]
         if isinstance(res, (StructNode, PropertyNode, ArrayNode)):
-            return NodeWrapper(res)
+            return NodeWrapper(res, self.doc)
         return res
 
     def __setitem__(self, key, value):
@@ -115,9 +142,31 @@ class NodeWrapper:
             target[key] = value
         else:
             # Assume it's a value assignment to a property
-            # If the property exists, we can use the value's scale if it's a multiplier
-            # but usually it's just a direct set.
             target.set_property(key, value)
+
+    def set_property(self, key, value, format_hint=None):
+        """Sets a property with an optional format hint."""
+        for n in self.nodes:
+            if isinstance(n, StructNode):
+                n.set_property(key, Value(value, format_hint))
+
+    def set_effective_property(self, key, value, original_node=None):
+        """
+        Sets a property, inheriting the format from original_node if provided.
+        original_node can be another NodeWrapper or a raw Node.
+        """
+        hint = None
+        if original_node:
+            if isinstance(original_node, NodeWrapper):
+                n = original_node.nodes[0]
+            else:
+                n = original_node
+            
+            # Extract format hint if we have a PropertyNode or ArrayElementNode
+            if hasattr(n, 'value') and hasattr(n.value, 'format_hint'):
+                hint = n.value.format_hint
+        
+        self.set_property(key, value, hint)
 
     def scale(self, factor):
         """Scales the value(s) in the wrapper if possible."""
@@ -136,7 +185,7 @@ class NodeWrapper:
         # If we have multiple nodes (like from a search), this might be ambiguous.
         # But for a single node wrapper, it iterates over children.
         if len(self.nodes) == 1 and isinstance(self.nodes[0], StructNode):
-            return iter(NodeWrapper(child) for child in self.nodes[0])
+            return iter(NodeWrapper(child, self.doc) for child in self.nodes[0])
         return iter([])
 
     def __contains__(self, key):
@@ -156,3 +205,10 @@ class NodeWrapper:
 # Alias for user's convenience
 Node = NodeFactory.create
 BPATCH = "{bpatch}"
+
+# Value formats
+FLOAT = "float"
+FLOAT_F = "float_f"
+INT = "int"
+PERCENT = "percent"
+STRING = "string"

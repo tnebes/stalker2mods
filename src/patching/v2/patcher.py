@@ -188,6 +188,33 @@ class Patcher:
         
         return abs_target_path
 
+    def save_override(self, mod_root, rel_path, doc):
+        """
+        Saves the FULL configuration document to the exact location and filename as the original.
+        Used for 'bruteforce' overriding when standard patching fails.
+        """
+        # Determine internal path (Content/GameLite/GameData/...)
+        game_data_marker = "GameData/"
+        if game_data_marker in rel_path.replace("\\", "/"):
+            parts = rel_path.replace("\\", "/").split(game_data_marker)
+            internal_rel_path = os.path.join("Content/GameLite/GameData", parts[1])
+        elif rel_path.replace("\\", "/").startswith("Content/"):
+            internal_rel_path = rel_path
+        else:
+            internal_rel_path = os.path.join("Content/GameLite/GameData", rel_path)
+
+        base_dir = os.path.join(mod_root, "Stalker2")
+        target_path = os.path.join(base_dir, internal_rel_path)
+        
+        abs_target_dir = os.path.dirname(os.path.abspath(target_path))
+        os.makedirs(abs_target_dir, exist_ok=True)
+        
+        print(f"OVERRIDING: {target_path}")
+        with open(target_path, 'w', encoding='utf-8-sig') as f:
+            f.write(doc.to_cfg())
+        
+        return target_path
+
     def inject_guardian(self, mod_root, mod_name, jump_stamina="100"):
         """
         Injects a 'Guardian' patch (blatant changes for testing) to confirm the mod is loading.

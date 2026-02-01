@@ -1,0 +1,9 @@
+Player : struct.begin {bpatch}
+    StaminaPerAction : struct.begin {bpatch}
+        Jump = 100.0
+    struct.end
+    MovementParams : struct.begin {bpatch}
+        SprintSpeed = 2000
+        RunSpeed = 1000
+    struct.end
+struct.end

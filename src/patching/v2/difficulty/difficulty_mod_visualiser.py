@@ -1,13 +1,6 @@
 import os
 import re
-import argparse
 from typing import Dict, Any, List
-
-# Configuration and Paths
-ORIGINAL_CFG_PATH = r"C:\dev\stalker2\cfg_dump_1-8-1\Stalker2\Content\GameLite\GameData\DifficultyPrototypes.cfg"
-PATCH_CFG_PATH = r"C:\dev\stalker2\mods\mods\BetterDifficulty\BetterDifficulty_P\Stalker2\Content\GameLite\GameData\DifficultyPrototypes\DifficultyPrototypes_patch_BetterDifficulty.cfg"
-OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_HTML = os.path.join(OUTPUT_DIR, "difficulty_mod_comparison.html")
 
 # Values where INCREASING is GOOD for the player (Buff)
 POSITIVE_ATTRIBUTES = {
@@ -173,7 +166,7 @@ def resolve_inheritance(prototypes: Dict[str, Dict[str, Any]]) -> Dict[str, Dict
         resolved[name] = get_val(name)
     return resolved
 
-def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch_data: Dict[str, Dict[str, Any]]):
+def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch_data: Dict[str, Dict[str, Any]], mod_name: str, output_path: str):
     diff_keys = ["Easy", "Medium", "Hard", "Stalker"]
     
     # Merge patch into original to get "Modded" state
@@ -212,7 +205,7 @@ def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>BetterDifficulty Comparison</title>
+        <title>{mod_name} Comparison</title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
@@ -290,7 +283,7 @@ def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch
     </head>
     <body>
         <header>
-            <h1>BetterDifficulty: Mod Comparison</h1>
+            <h1>{mod_name}: Mod Comparison</h1>
             <p class="subtitle">Showcasing Buffs and Nerfs relative to Original Stalker 2 Difficulty</p>
         </header>
 
@@ -313,7 +306,6 @@ def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch
     for attr in display_keys:
         desc = ATTRIBUTE_DESCRIPTIONS.get(attr)
         display_text = desc if desc else attr
-        # User requested: hover icon shows the name, description is shown
         info_svg = f'<span class="info-icon" data-tooltip="{attr}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></span>'
         
         html += f"<tr><td class='sticky-col'><div class='attr-content'><span class='attr-name'>{display_text}</span> {info_svg}</div></td>"
@@ -354,7 +346,6 @@ def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch
                     perc_str = "NEW"
 
             elif is_changed and isinstance(mod_val, bool):
-                # Buff/Nerf for booleans
                 if "Disable" in attr or "Limit" in attr: is_buff = not mod_val
                 else: is_buff = mod_val
                 status_class = "buff-bg" if is_buff else "nerf-bg"
@@ -371,12 +362,14 @@ def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch
         html += "</tr>"
 
     html += """</tbody></table></div></body></html>"""
-    with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, 'w', encoding='utf-8') as f:
         f.write(html)
-    print(f"Generated {OUTPUT_HTML}")
+    print(f"Generated {output_path}")
 
-if __name__ == "__main__":
-    orig_prototypes = parse_cfg(ORIGINAL_CFG_PATH)
+def run_visualisation(orig_cfg_path: str, patch_cfg_path: str, mod_name: str, output_path: str):
+    orig_prototypes = parse_cfg(orig_cfg_path)
     orig_resolved = resolve_inheritance(orig_prototypes)
-    patch_prototypes = parse_cfg(PATCH_CFG_PATH)
-    generate_mod_comparison_html(orig_resolved, patch_prototypes)
+    patch_prototypes = parse_cfg(patch_cfg_path)
+    generate_mod_comparison_html(orig_resolved, patch_prototypes, mod_name, output_path)

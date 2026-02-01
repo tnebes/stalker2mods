@@ -1,24 +1,20 @@
 import os
 import sys
 
-# Add project root to sys.path for absolute imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")))
-
-from src.patching.v2.api import load_configuration
-from src.patching.v2.patcher import Patcher
-from src.patching.v2.difficulty.difficulty_values import DIFFICULTY_VALUES
-
 # Mapping indices to SID names in DifficultyPrototypes.cfg
 DIFFICULTIES = ["Easy", "Medium", "Hard", "Stalker"]
 CONFIG_REL_PATH = "DifficultyPrototypes.cfg"
-MOD_ROOT = r"C:\dev\stalker2\mods\mods\BetterDifficulty\BetterDifficulty_P"
 
-def run_patching():
+def patch_difficulty(difficulty_values, mod_name, mod_root):
     """
-    Applies values from DIFFICULTY_VALUES to DifficultyPrototypes.cfg 
-    and generates a BPATCH file for the BetterDifficulty mod.
+    Applies values from difficulty_values to DifficultyPrototypes.cfg 
+    and generates a BPATCH file for the specified mod.
     """
-    print("Loading DifficultyPrototypes.cfg...")
+    # Import here to avoid circular imports if needed, though not strictly necessary here
+    from src.patching.v2.api import load_configuration
+    from src.patching.v2.patcher import Patcher
+
+    print(f"Loading {CONFIG_REL_PATH} for {mod_name}...")
     cfg = load_configuration(CONFIG_REL_PATH)
     
     modified_count = 0
@@ -30,14 +26,12 @@ def run_patching():
             continue
             
         print(f"Processing difficulty: {diff_sid}...")
-        for key, values_list in DIFFICULTY_VALUES.items():
+        for key, values_list in difficulty_values.items():
             if i < len(values_list):
                 new_value = values_list[i]
                 
                 # We only apply the value if it's not None
                 if new_value is not None:
-                    # Check if it actually changed (optional, Patcher.generate_patch will handle it, 
-                    # but setting it here ensures we mark it for the diff engine)
                     node[key] = new_value
                     modified_count += 1
 
@@ -49,18 +43,12 @@ def run_patching():
     patch_doc = patcher.generate_patch(CONFIG_REL_PATH, cfg.doc)
     
     # Save the patch following the Stalker 2 mod structure
-    print(f"Saving patch to {MOD_ROOT}...")
+    print(f"Saving patch to {mod_root}...")
     output_path = patcher.save_patch(
-        mod_root=MOD_ROOT,
-        mod_name="BetterDifficulty",
+        mod_root=mod_root,
+        mod_name=mod_name,
         patch_doc=patch_doc
     )
     
-    print(f"Succefully generated patch at: {output_path}")
-
-if __name__ == "__main__":
-    try:
-        run_patching()
-    except Exception as e:
-        print(f"Error during patching: {e}")
-        sys.exit(1)
+    print(f"Successfully generated patch at: {output_path}")
+    return output_path

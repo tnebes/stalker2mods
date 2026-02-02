@@ -166,9 +166,24 @@ def resolve_inheritance(prototypes: Dict[str, Dict[str, Any]]) -> Dict[str, Dict
         resolved[name] = get_val(name)
     return resolved
 
-def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch_data: Dict[str, Dict[str, Any]], mod_name: str, output_path: str):
+def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch_data: Dict[str, Dict[str, Any]], mod_name: str, output_path: str, theme_colors: Dict[str, str] = None):
     diff_keys = ["Easy", "Medium", "Hard", "Stalker"]
     
+    colors = {
+        "bg": "#0a0a0c",
+        "card-bg": "#141418",
+        "text": "#e0e0e0",
+        "text-dim": "#a0a0a0",
+        "accent": "#b1621d",
+        "green": "#2ecc71",
+        "red": "#e74c3c",
+        "blue": "#3498db",
+        "border": "#2a2a2e",
+        "gradient": "linear-gradient(90deg, #b1621d, #3a5b54)"
+    }
+    if theme_colors:
+        colors.update(theme_colors)
+
     # Merge patch into original to get "Modded" state
     modded_resolved = {}
     for diff in diff_keys:
@@ -211,16 +226,16 @@ def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
         <style>
             :root {{
-                --bg: #0a0a0c;
-                --card-bg: #141418;
-                --text: #e0e0e0;
-                --text-dim: #a0a0a0;
-                --accent: #b1621d;
-                --green: #2ecc71;
-                --red: #e74c3c;
-                --blue: #3498db;
+                --bg: {colors['bg']};
+                --card-bg: {colors['card-bg']};
+                --text: {colors['text']};
+                --text-dim: {colors['text-dim']};
+                --accent: {colors['accent']};
+                --green: {colors['green']};
+                --red: {colors['red']};
+                --blue: {colors['blue']};
                 --grey: #444;
-                --border: #2a2a2e;
+                --border: {colors['border']};
                 --tooltip-bg: #222;
             }}
             body {{
@@ -231,8 +246,8 @@ def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch
             header {{ text-align: center; margin-bottom: 30px; width: 100%; max-width: 1200px; }}
             h1 {{
                 font-weight: 800; text-transform: uppercase; letter-spacing: 2px;
-                margin: 0 0 10px 0; background: linear-gradient(90deg, #b1621d, #3a5b54);
-                -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2.5rem;
+                margin: 0 0 10px 0; background: {colors['gradient']};
+                -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-size: 2.5rem;
             }}
             .subtitle {{ color: var(--text-dim); font-size: 1.1rem; }}
             .legend {{ display: flex; gap: 20px; margin-bottom: 20px; font-size: 0.9rem; }}
@@ -368,8 +383,8 @@ def generate_mod_comparison_html(orig_resolved: Dict[str, Dict[str, Any]], patch
         f.write(html)
     print(f"Generated {output_path}")
 
-def run_visualisation(orig_cfg_path: str, patch_cfg_path: str, mod_name: str, output_path: str):
+def run_visualisation(orig_cfg_path: str, patch_cfg_path: str, mod_name: str, output_path: str, theme_colors: Dict[str, str] = None):
     orig_prototypes = parse_cfg(orig_cfg_path)
     orig_resolved = resolve_inheritance(orig_prototypes)
     patch_prototypes = parse_cfg(patch_cfg_path)
-    generate_mod_comparison_html(orig_resolved, patch_prototypes, mod_name, output_path)
+    generate_mod_comparison_html(orig_resolved, patch_prototypes, mod_name, output_path, theme_colors)

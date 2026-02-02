@@ -3,37 +3,62 @@ import re
 import patching_script_general as psg
 from patch_config import SOURCE_DUMP, get_mod_root
 
-V1_HEAD = 8.0
+V1_HEAD = 6.0
 V1_BODY = 2.0
 V1_LIMBS = 1.0
+
+# Calculation Constants
+ROUNDING_PRECISION = 0.1
+
+ZOMBIE_HEAD_MUL = 1.3
+ZOMBIE_BODY_MUL = 1.1
+ZOMBIE_LIMBS_MUL = 0.9
+
+SPECIAL_RULES = {
+    'Head': (3.0, 3.0),   # (Increment, Multiplier)
+    'Body': (1.75, 2.0),  # (Increment, Multiplier)
+    'Limbs': (0.5, 1.2)   # (Increment, Multiplier)
+}
+
+DEFAULT_HEAD_MUL = 1.35
+DEFAULT_BODY_MUL = 1.2
+DEFAULT_LIMBS_MUL = 1.1
+
+# Logic Constants
+DEFAULT_BONE_COEF = 1.0
+SPECIAL_THRESHOLD = 1.0
+
+# Path and Mod Constants
+MOD_NAME = "RewardingHeadshots"
+OBJ_PROTO_RELATIVE_DIR = 'Content/GameLite/GameData/ObjPrototypes'
+TARGET_BASE_STRUCT = "NPCBase"
 
 def get_original_coefs(struct_data):
     def find_coef(bone_name):
         pattern = rf'DamageBone\s*=\s*EDamageBone::{bone_name}\s+DamageCoef\s*=\s*([\d\.]+)'
         match = re.search(pattern, struct_data, re.IGNORECASE)
-        return float(match.group(1)) if match else 1.0
+        return float(match.group(1)) if match else DEFAULT_BONE_COEF
     return {'Head': find_coef('Head'), 'Body': find_coef('Body'), 'Limbs': find_coef('Limbs')}
 
 def calculate_coefs(original, is_zombie=False, is_special=False):
     if is_zombie:
         return {
-            'Head': psg.round_to_nearest(original['Head'] * 1.3, 0.1),
-            'Body': psg.round_to_nearest(original['Body'] * 1.1, 0.1),
-            'Limbs': psg.round_to_nearest(original['Limbs'] * 0.9, 0.1)
+            'Head': psg.round_to_nearest(original['Head'] * ZOMBIE_HEAD_MUL, ROUNDING_PRECISION),
+            'Body': psg.round_to_nearest(original['Body'] * ZOMBIE_BODY_MUL, ROUNDING_PRECISION),
+            'Limbs': psg.round_to_nearest(original['Limbs'] * ZOMBIE_LIMBS_MUL, ROUNDING_PRECISION)
         }
     elif is_special:
-        rules = {'Head': (3.5, 3.0), 'Body': (1.75, 2.0), 'Limbs': (0.5, 1.2)}
         res = {}
-        for bone, (inc, mul) in rules.items():
+        for bone, (inc, mul) in SPECIAL_RULES.items():
             orig = original[bone]
-            val = orig + inc if orig <= 1.0 else orig * mul
-            res[bone] = psg.round_to_nearest(val, 0.1)
+            val = orig + inc if orig <= SPECIAL_THRESHOLD else orig * mul
+            res[bone] = psg.round_to_nearest(val, ROUNDING_PRECISION)
         return res
     else:
         return {
-            'Head': psg.round_to_nearest(original['Head'] * 1.45, 0.1),
-            'Body': psg.round_to_nearest(original['Body'] * 1.2, 0.1),
-            'Limbs': psg.round_to_nearest(original['Limbs'] * 1.10, 0.1)
+            'Head': psg.round_to_nearest(original['Head'] * DEFAULT_HEAD_MUL, ROUNDING_PRECISION),
+            'Body': psg.round_to_nearest(original['Body'] * DEFAULT_BODY_MUL, ROUNDING_PRECISION),
+            'Limbs': psg.round_to_nearest(original['Limbs'] * DEFAULT_LIMBS_MUL, ROUNDING_PRECISION)
         }
 
 def is_zombie_check(struct_name, patcher):
@@ -82,16 +107,15 @@ def extract_coefs_from_ast(node):
     return res
 
 def run():
-    print("--- Running RewardingHeadshots Patching ---")
-    mod_root = get_mod_root("RewardingHeadshots")
+    print(f"--- Running {MOD_NAME} Patching ---")
+    mod_root = get_mod_root(MOD_NAME)
     patcher = psg.ModPatcher(SOURCE_DUMP, mod_root)
     
-    obj_proto_rel_dir = 'Content/GameLite/GameData/ObjPrototypes'
-    obj_proto_abs_dir = os.path.join(SOURCE_DUMP, obj_proto_rel_dir)
-    files = [os.path.join(obj_proto_rel_dir, f) for f in os.listdir(obj_proto_abs_dir) if f.endswith('.cfg')]
+    obj_proto_abs_dir = os.path.join(SOURCE_DUMP, OBJ_PROTO_RELATIVE_DIR)
+    files = [os.path.join(OBJ_PROTO_RELATIVE_DIR, f) for f in os.listdir(obj_proto_abs_dir) if f.endswith('.cfg')]
     patcher.load_files(files)
     
-    target_structs = patcher.get_all_inheritors("NPCBase")
+    target_structs = patcher.get_all_inheritors(TARGET_BASE_STRUCT)
     
     for s in target_structs:
         filename_info = patcher.struct_to_file.get(s)
@@ -117,4 +141,4 @@ def run():
         patch_text = psg.generate_bpatch(s, ["BoneDamageCoefficients"], values=bdc, bpatch_until=1)
         patcher.add_patch(filename, patch_text)
         
-    patcher.save_all("RewardingHeadshots")
+    patcher.save_all(MOD_NAME)
